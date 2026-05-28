@@ -15,8 +15,9 @@ Start a fresh training run (100,000 episodes by default):
 python train.py
 ```
 
-Checkpoints are saved every 1,000 episodes to the `checkpoints/` directory
-and a reward log is written to `rewards.csv`.
+Checkpoints are saved every 10,000 episodes to the `checkpoints/` directory,
+a reward log is written to `rewards.csv`, and a reward graph is saved to
+`graphs/` every 25,000 episodes.
 
 ### Resuming from a checkpoint
 
@@ -45,8 +46,9 @@ Key parameters in `train.py`:
 | Parameter | Default | Description |
 |---|---|---|
 | `TOTAL_EPISODES` | 100,000 | Total training episodes |
-| `CHECKPOINT_EVERY` | 1,000 | Save a checkpoint every N episodes |
-| `KEEP_CHECKPOINTS` | 5 | Number of recent checkpoints to keep |
+| `CHECKPOINT_EVERY` | 10,000 | Save a checkpoint every N episodes |
+| `GRAPH_EVERY` | 25,000 | Save a reward graph every N episodes |
+| `KEEP_CHECKPOINTS` | 10 | Number of recent checkpoints to keep |
 | `LOG_EVERY` | 500 | Log average reward every N episodes |
 
 ## Playing
