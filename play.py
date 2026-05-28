@@ -6,7 +6,7 @@ import sys
 import numpy as np
 import torch
 
-from whist_env import WhistEnv, card_name, SUITS, TEAMS
+from whist_env import WhistEnv, card_name, trump_name, SUITS, TEAMS
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -50,7 +50,7 @@ def play():
     obs, info = env.reset()
 
     print("=" * 50)
-    print(f"  WHIST — Trump: {SUITS[env.trump_suit]}")
+    print(f"  WHIST — Trump: {trump_name(env.trump_suit)}")
     print(f"  Team 0 (Players 0, 2) vs Team 1 (Players 1, 3)")
     print("=" * 50)
 

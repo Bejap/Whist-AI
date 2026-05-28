@@ -7,6 +7,7 @@ from gymnasium import spaces
 
 # Card encoding: 0-51, suit = card // 13, rank = card % 13
 SUITS = ["Clubs", "Diamonds", "Hearts", "Spades"]
+NO_TRUMP = 4  # sentinel value: no trump suit this round
 RANKS = [
     "2", "3", "4", "5", "6", "7", "8", "9", "10",
     "Jack", "Queen", "King", "Ace",
@@ -25,18 +26,23 @@ def card_name(card_id: int) -> str:
     return f"{RANKS[card_id % 13]} of {SUITS[card_id // 13]}"
 
 
+def trump_name(trump_suit: int) -> str:
+    """Return a human-readable trump name."""
+    if trump_suit == NO_TRUMP:
+        return "No Trump"
+    return SUITS[trump_suit]
+
+
 class WhistEnv(gym.Env):
     """Gymnasium environment for 4-player Whist.
 
-    Observation (length 224):
+    Observation (length 163):
         - own hand:       52 bits (one-hot)
         - played cards:   52 bits (cards already used in previous tricks)
         - current trick:  52 bits (cards on the table this trick, up to 3)
-        - trump suit:      4 bits (one-hot)
-        - team tricks:    64 floats (team0 tricks / 13, team1 tricks / 13,
-                          repeated 32× for alignment – simplified to 2 floats
-                          padded to keep space compact)
-    Simplified observation = 52 + 52 + 52 + 4 + 2 = 162
+        - trump suit:      5 bits (one-hot; index 0-3 = suit, index 4 = no trump)
+        - team tricks:     2 floats (team0 tricks / 13, team1 tricks / 13)
+    Total = 52 + 52 + 52 + 5 + 2 = 163
 
     Action space: Discrete(52), masked to valid cards in hand.
     """
@@ -48,7 +54,7 @@ class WhistEnv(gym.Env):
         self.render_mode = render_mode
 
         self.observation_space = spaces.Box(
-            low=0.0, high=1.0, shape=(162,), dtype=np.float32
+            low=0.0, high=1.0, shape=(163,), dtype=np.float32
         )
         self.action_space = spaces.Discrete(NUM_CARDS)
 
@@ -76,7 +82,7 @@ class WhistEnv(gym.Env):
             sorted(deck[i * CARDS_PER_PLAYER: (i + 1) * CARDS_PER_PLAYER])
             for i in range(NUM_PLAYERS)
         ]
-        self.trump_suit = self.np_random.integers(0, 4)
+        self.trump_suit = self.np_random.integers(0, 5)  # 0-3 = suit, 4 = no trump
         self.current_player = 0
         self.lead_player = 0
         self.trick_cards = []
@@ -171,7 +177,7 @@ class WhistEnv(gym.Env):
 
     def _get_obs(self) -> np.ndarray:
         """Build observation vector for the current player."""
-        obs = np.zeros(162, dtype=np.float32)
+        obs = np.zeros(163, dtype=np.float32)
 
         # Own hand (0-51)
         for c in self.hands[self.current_player]:
@@ -184,12 +190,12 @@ class WhistEnv(gym.Env):
         for _, card in self.trick_cards:
             obs[104 + card] = 1.0
 
-        # Trump suit one-hot (156-159)
+        # Trump suit one-hot (156-160): 5 bits (0-3 = suit, 4 = no trump)
         obs[156 + self.trump_suit] = 1.0
 
-        # Team tricks normalised (160-161)
-        obs[160] = self.team_tricks[0] / 13.0
-        obs[161] = self.team_tricks[1] / 13.0
+        # Team tricks normalised (161-162)
+        obs[161] = self.team_tricks[0] / 13.0
+        obs[162] = self.team_tricks[1] / 13.0
 
         return obs
 
@@ -205,14 +211,15 @@ class WhistEnv(gym.Env):
     def _resolve_trick(self) -> int:
         """Determine the winner of the current trick."""
         lead_suit = self.trick_cards[0][1] // 13
+        has_trump = self.trump_suit != NO_TRUMP
 
         best_player = self.trick_cards[0][0]
         best_card = self.trick_cards[0][1]
-        best_is_trump = (best_card // 13) == self.trump_suit
+        best_is_trump = has_trump and (best_card // 13) == self.trump_suit
 
         for player, card in self.trick_cards[1:]:
             card_suit = card // 13
-            is_trump = card_suit == self.trump_suit
+            is_trump = has_trump and card_suit == self.trump_suit
 
             if is_trump and not best_is_trump:
                 # Trump beats non-trump
@@ -233,7 +240,7 @@ class WhistEnv(gym.Env):
         if self.render_mode != "human":
             return
         print(f"\n--- Trick {self.tricks_played + 1} ---")
-        print(f"Trump: {SUITS[self.trump_suit]}")
+        print(f"Trump: {trump_name(self.trump_suit)}")
         print(f"Team tricks: {self.team_tricks}")
         print(f"Current player: {self.current_player}")
         if self.trick_cards:
