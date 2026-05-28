@@ -36,13 +36,14 @@ def trump_name(trump_suit: int) -> str:
 class WhistEnv(gym.Env):
     """Gymnasium environment for 4-player Whist.
 
-    Observation (length 163):
-        - own hand:       52 bits (one-hot)
-        - played cards:   52 bits (cards already used in previous tricks)
-        - current trick:  52 bits (cards on the table this trick, up to 3)
-        - trump suit:      5 bits (one-hot; index 0-3 = suit, index 4 = no trump)
-        - team tricks:     2 floats (team0 tricks / 13, team1 tricks / 13)
-    Total = 52 + 52 + 52 + 5 + 2 = 163
+    Observation (length 167):
+        - own hand:            52 bits (one-hot)
+        - played cards:        52 bits (cards already used in previous tricks)
+        - current trick:       52 bits (cards on the table this trick, up to 3)
+        - trump suit:           5 bits (one-hot; index 0-3 = suit, index 4 = no trump)
+        - team tricks:          2 floats (team0 tricks / 13, team1 tricks / 13)
+        - learning player id:   4 bits (one-hot encoding of seat 0-3)
+    Total = 52 + 52 + 52 + 5 + 2 + 4 = 167
 
     Action space: Discrete(52), masked to valid cards in hand.
     """
@@ -54,7 +55,7 @@ class WhistEnv(gym.Env):
         self.render_mode = render_mode
 
         self.observation_space = spaces.Box(
-            low=0.0, high=1.0, shape=(163,), dtype=np.float32
+            low=0.0, high=1.0, shape=(167,), dtype=np.float32
         )
         self.action_space = spaces.Discrete(NUM_CARDS)
 
@@ -97,10 +98,11 @@ class WhistEnv(gym.Env):
         if self.done:
             raise RuntimeError("Episode is done. Call reset().")
 
-        # Validate action
+        # Validate action — penalise invalid picks
         valid = self.action_mask()
+        invalid_penalty = 0.0
         if valid[action] == 0:
-            # If invalid action, pick first valid card
+            invalid_penalty = -0.5
             action = int(np.argmax(valid))
 
         card = action
@@ -111,7 +113,7 @@ class WhistEnv(gym.Env):
         self.trick_cards.append((player, card))
         self.played_cards[card] = 1.0
 
-        reward = 0.0
+        reward = invalid_penalty
         terminated = False
         truncated = False
 
@@ -125,20 +127,23 @@ class WhistEnv(gym.Env):
             # Reward for the acting player's team
             acting_team = TEAMS[player]
             if winning_team == acting_team:
-                reward = 1.0
+                reward += 1.0
             else:
-                reward = -1.0
+                reward += -1.0
+
+            # --- Reward shaping ---
+            reward += self._shape_reward(player, card, winner)
 
             self.trick_cards = []
             self.lead_player = winner
             self.current_player = winner
 
             if self.tricks_played == NUM_TRICKS:
-                # Round over — bonus for winning team
+                # Round over — terminal bonus (scaled to ±3.0)
                 if self.team_tricks[acting_team] > self.team_tricks[1 - acting_team]:
-                    reward += 5.0
+                    reward += 3.0
                 else:
-                    reward -= 5.0
+                    reward -= 3.0
                 terminated = True
                 self.done = True
         else:
@@ -175,9 +180,14 @@ class WhistEnv(gym.Env):
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _get_obs(self) -> np.ndarray:
-        """Build observation vector for the current player."""
-        obs = np.zeros(163, dtype=np.float32)
+    def _get_obs(self, player_id=None) -> np.ndarray:
+        """Build observation vector for the current player.
+
+        Args:
+            player_id: Optional seat id (0-3) to encode in the observation.
+                       When None, defaults to current_player.
+        """
+        obs = np.zeros(167, dtype=np.float32)
 
         # Own hand (0-51)
         for c in self.hands[self.current_player]:
@@ -197,6 +207,10 @@ class WhistEnv(gym.Env):
         obs[161] = self.team_tricks[0] / 13.0
         obs[162] = self.team_tricks[1] / 13.0
 
+        # Learning player id one-hot (163-166)
+        pid = player_id if player_id is not None else self.current_player
+        obs[163 + pid] = 1.0
+
         return obs
 
     def _get_info(self) -> dict:
@@ -207,6 +221,39 @@ class WhistEnv(gym.Env):
             "tricks_played": self.tricks_played,
             "action_mask": self.action_mask(),
         }
+
+    def _shape_reward(self, player: int, card: int, winner: int) -> float:
+        """Compute bonus / penalty shaping for the trick just resolved.
+
+        Must be called *before* trick_cards is cleared.
+        """
+        bonus = 0.0
+        card_suit = card // 13
+        has_trump = self.trump_suit != NO_TRUMP
+        is_trump = has_trump and card_suit == self.trump_suit
+        acting_team = TEAMS[player]
+        winning_team = TEAMS[winner]
+        lead_suit = self.trick_cards[0][1] // 13
+
+        if winning_team == acting_team:
+            if is_trump and winner == player:
+                # Won with a trump card
+                bonus += 0.3
+            elif card_suit == lead_suit and winner == player:
+                # Won with highest card of lead suit
+                bonus += 0.2
+        else:
+            # Team lost the trick
+            if is_trump:
+                # Wasted a trump on a trick the team lost
+                bonus -= 0.1
+
+        # Also penalise wasting trump when teammate already winning
+        if is_trump and winning_team == acting_team and winner != player:
+            # Teammate already winning — trump was unnecessary
+            bonus -= 0.1
+
+        return bonus
 
     def _resolve_trick(self) -> int:
         """Determine the winner of the current trick."""
@@ -269,12 +316,21 @@ class SelfPlayWrapper(gym.Wrapper):
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
         self._learning_player = self.env.current_player
+        # Rebuild obs with learning player id
+        obs = self.env._get_obs(player_id=self._learning_player)
+        info = self.env._get_info()
         return obs, info
 
     def step(self, action):
+        team = TEAMS[self._learning_player]
+
+        # Record trick counts before the learning player's action
+        tricks_before = self.env.team_tricks[team]
+
         obs, reward, terminated, truncated, info = self.env.step(action)
 
         if terminated or truncated:
+            obs = self.env._get_obs(player_id=self._learning_player)
             return obs, reward, terminated, truncated, info
 
         # Let other players play until it's the learning player's turn again
@@ -289,14 +345,26 @@ class SelfPlayWrapper(gym.Wrapper):
                 valid_actions = np.where(mask > 0)[0]
                 other_action = self.env.np_random.choice(valid_actions)
 
-            obs, r, terminated, truncated, info = self.env.step(other_action)
+            tricks_before_step = list(self.env.team_tricks)
+            obs, _r, terminated, truncated, info = self.env.step(other_action)
+
+            # If a trick resolved during an opponent turn, credit the
+            # learning player with +1 (team won) or -1 (team lost).
+            if self.env.team_tricks[0] != tricks_before_step[0] or self.env.team_tricks[1] != tricks_before_step[1]:
+                if self.env.team_tricks[team] > tricks_before_step[team]:
+                    reward += 1.0
+                else:
+                    reward -= 1.0
+
             if terminated or truncated:
-                # Compute final reward from learning player's perspective
-                team = TEAMS[self._learning_player]
-                other_team = 1 - team
+                # Terminal bonus from learning player's perspective
                 tricks_won = self.env.team_tricks[team]
-                tricks_lost = self.env.team_tricks[other_team]
-                reward = 5.0 if tricks_won > tricks_lost else -5.0
+                tricks_lost = self.env.team_tricks[1 - team]
+                reward += 3.0 if tricks_won > tricks_lost else -3.0
+                obs = self.env._get_obs(player_id=self._learning_player)
                 return obs, reward, terminated, truncated, info
 
+        # Rebuild obs with learning player id
+        obs = self.env._get_obs(player_id=self._learning_player)
+        info = self.env._get_info()
         return obs, reward, terminated, truncated, info

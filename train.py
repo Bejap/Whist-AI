@@ -8,6 +8,9 @@ import sys
 
 import numpy as np
 import torch
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback
 from tqdm import tqdm
@@ -19,10 +22,12 @@ from whist_env import SelfPlayWrapper, WhistEnv, TEAMS
 # ---------------------------------------------------------------------------
 CHECKPOINT_DIR = "checkpoints"
 REWARDS_CSV = "rewards.csv"
+GRAPH_DIR = "graphs"
 TOTAL_EPISODES = 100_000
-CHECKPOINT_EVERY = 1000
+CHECKPOINT_EVERY = 10_000
+GRAPH_EVERY = 25_000
 LOG_EVERY = 500
-KEEP_CHECKPOINTS = 5
+KEEP_CHECKPOINTS = 10
 
 # PPO hyper-parameters (small footprint)
 PPO_KWARGS = dict(
@@ -87,6 +92,46 @@ def append_reward(episode, reward):
         if write_header:
             writer.writerow(["episode", "avg_reward"])
         writer.writerow([episode, f"{reward:.4f}"])
+
+
+def save_reward_graph(episode):
+    """Read rewards.csv and save a reward-over-time graph to graphs/."""
+    if not os.path.exists(REWARDS_CSV):
+        return
+    episodes, rewards = [], []
+    with open(REWARDS_CSV, newline="") as f:
+        reader = csv.reader(f)
+        next(reader, None)  # skip header
+        for row in reader:
+            if len(row) >= 2:
+                episodes.append(int(row[0]))
+                rewards.append(float(row[1]))
+    if not episodes:
+        return
+
+    os.makedirs(GRAPH_DIR, exist_ok=True)
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.plot(episodes, rewards, linewidth=0.8, alpha=0.6, label="avg reward")
+
+    # Add a smoothed trend line (rolling window of 50 log entries)
+    if len(rewards) >= 50:
+        window = 50
+        smoothed = np.convolve(rewards, np.ones(window) / window, mode="valid")
+        ax.plot(
+            episodes[window - 1:], smoothed,
+            linewidth=2, color="red", label=f"smoothed ({window}-pt)",
+        )
+
+    ax.set_xlabel("Episode")
+    ax.set_ylabel("Average Reward")
+    ax.set_title(f"Training Reward (up to episode {episode})")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    path = os.path.join(GRAPH_DIR, f"reward_ep_{episode}.png")
+    fig.savefig(path, dpi=100)
+    plt.close(fig)
 
 
 def sample_action(model, obs, mask):
@@ -155,6 +200,13 @@ class EpisodeTracker(BaseCallback):
                     if hasattr(env, "set_policy"):
                         env.set_policy(make_policy_fn(self.model))
 
+                # Reward graph
+                if self.episode % GRAPH_EVERY == 0:
+                    save_reward_graph(self.episode)
+                    tqdm.write(
+                        f"  📈 Reward graph saved at episode {self.episode}"
+                    )
+
                 if self.episode >= TOTAL_EPISODES:
                     return False  # stop training
         return True
@@ -201,6 +253,7 @@ def train():
 
     # Final save
     save_checkpoint(model, tracker.episode)
+    save_reward_graph(tracker.episode)
     print(f"\nTraining complete. Final episode: {tracker.episode}")
 
 
