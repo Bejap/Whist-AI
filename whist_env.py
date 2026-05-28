@@ -236,7 +236,7 @@ class WhistEnv(gym.Env):
         lead_suit = self.trick_cards[0][1] // 13
 
         if winning_team == acting_team:
-            if is_trump and winning_team == acting_team and winner == player:
+            if is_trump and winner == player:
                 # Won with a trump card
                 bonus += 0.3
             elif card_suit == lead_suit and winner == player:
@@ -345,13 +345,13 @@ class SelfPlayWrapper(gym.Wrapper):
                 valid_actions = np.where(mask > 0)[0]
                 other_action = self.env.np_random.choice(valid_actions)
 
-            _prev_tricks = list(self.env.team_tricks)
+            tricks_before_step = list(self.env.team_tricks)
             obs, _r, terminated, truncated, info = self.env.step(other_action)
 
             # If a trick resolved during an opponent turn, credit the
             # learning player with +1 (team won) or -1 (team lost).
-            if self.env.team_tricks != _prev_tricks:
-                if self.env.team_tricks[team] > _prev_tricks[team]:
+            if self.env.team_tricks[0] != tricks_before_step[0] or self.env.team_tricks[1] != tricks_before_step[1]:
+                if self.env.team_tricks[team] > tricks_before_step[team]:
                     reward += 1.0
                 else:
                     reward -= 1.0

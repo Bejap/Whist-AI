@@ -9,13 +9,13 @@ pip install -r requirements.txt
 
 ## Training
 
-Start a fresh training run (100 000 episodes by default):
+Start a fresh training run (100,000 episodes by default):
 
 ```bash
 python train.py
 ```
 
-Checkpoints are saved every 1 000 episodes to the `checkpoints/` directory
+Checkpoints are saved every 1,000 episodes to the `checkpoints/` directory
 and a reward log is written to `rewards.csv`.
 
 ### Resuming from a checkpoint
@@ -36,7 +36,7 @@ python train.py          # automatically loads the latest checkpoint
 ```
 
 You can also adjust `TOTAL_EPISODES` in `train.py` to extend training
-beyond the default 100 000 episodes.
+beyond the default 100,000 episodes.
 
 ### Configuration
 
@@ -44,8 +44,8 @@ Key parameters in `train.py`:
 
 | Parameter | Default | Description |
 |---|---|---|
-| `TOTAL_EPISODES` | 100 000 | Total training episodes |
-| `CHECKPOINT_EVERY` | 1 000 | Save a checkpoint every N episodes |
+| `TOTAL_EPISODES` | 100,000 | Total training episodes |
+| `CHECKPOINT_EVERY` | 1,000 | Save a checkpoint every N episodes |
 | `KEEP_CHECKPOINTS` | 5 | Number of recent checkpoints to keep |
 | `LOG_EVERY` | 500 | Log average reward every N episodes |
 
