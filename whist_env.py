@@ -287,18 +287,16 @@ class SelfPlayWrapper(gym.Wrapper):
                 # Random policy fallback
                 mask = self.env.action_mask()
                 valid_actions = np.where(mask > 0)[0]
-                other_action = self.np_random.choice(valid_actions)
+                other_action = self.env.np_random.choice(valid_actions)
 
             obs, r, terminated, truncated, info = self.env.step(other_action)
             if terminated or truncated:
-                # Compute reward from learning player's perspective
+                # Compute final reward from learning player's perspective
                 team = TEAMS[self._learning_player]
                 other_team = 1 - team
                 tricks_won = self.env.team_tricks[team]
                 tricks_lost = self.env.team_tricks[other_team]
-                reward = (tricks_won - tricks_lost) + (
-                    5.0 if tricks_won > tricks_lost else -5.0
-                )
+                reward = 5.0 if tricks_won > tricks_lost else -5.0
                 return obs, reward, terminated, truncated, info
 
         return obs, reward, terminated, truncated, info
