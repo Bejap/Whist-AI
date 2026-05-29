@@ -36,14 +36,15 @@ def trump_name(trump_suit: int) -> str:
 class WhistEnv(gym.Env):
     """Gymnasium environment for 4-player Whist.
 
-    Observation (length 167):
-        - own hand:            52 bits (one-hot)
-        - played cards:        52 bits (cards already used in previous tricks)
-        - current trick:       52 bits (cards on the table this trick, up to 3)
-        - trump suit:           5 bits (one-hot; index 0-3 = suit, index 4 = no trump)
-        - team tricks:          2 floats (team0 tricks / 13, team1 tricks / 13)
-        - learning player id:   4 bits (one-hot encoding of seat 0-3)
-    Total = 52 + 52 + 52 + 5 + 2 + 4 = 167
+    Observation (length 171):
+        - own hand:              52 bits (one-hot)
+        - played cards:          52 bits (cards already used in previous tricks)
+        - current trick:         52 bits (cards on the table this trick, up to 3)
+        - trump suit:             5 bits (one-hot; index 0-3 = suit, index 4 = no trump)
+        - team tricks:            2 floats (team0 tricks / 13, team1 tricks / 13)
+        - learning player id:     4 bits (one-hot encoding of seat 0-3)
+        - current trick winner:   4 bits (one-hot of player currently winning trick)
+    Total = 52 + 52 + 52 + 5 + 2 + 4 + 4 = 171
 
     Action space: Discrete(52), masked to valid cards in hand.
     """
@@ -55,7 +56,7 @@ class WhistEnv(gym.Env):
         self.render_mode = render_mode
 
         self.observation_space = spaces.Box(
-            low=0.0, high=1.0, shape=(167,), dtype=np.float32
+            low=0.0, high=1.0, shape=(171,), dtype=np.float32
         )
         self.action_space = spaces.Discrete(NUM_CARDS)
 
@@ -187,7 +188,7 @@ class WhistEnv(gym.Env):
             player_id: Optional seat id (0-3) to encode in the observation.
                        When None, defaults to current_player.
         """
-        obs = np.zeros(167, dtype=np.float32)
+        obs = np.zeros(171, dtype=np.float32)
 
         # Own hand (0-51)
         pid = player_id if player_id is not None else self.current_player
@@ -212,6 +213,11 @@ class WhistEnv(gym.Env):
         pid = player_id if player_id is not None else self.current_player
         obs[163 + pid] = 1.0
 
+        # Current trick winner one-hot (167-170)
+        if self.trick_cards:
+            tw = self._current_trick_winner()
+            obs[167 + tw] = 1.0
+
         return obs
 
     def _get_info(self) -> dict:
@@ -230,16 +236,67 @@ class WhistEnv(gym.Env):
         """
         bonus = 0.0
         card_suit = card // 13
+        card_rank = card % 13
         has_trump = self.trump_suit != NO_TRUMP
         is_trump = has_trump and card_suit == self.trump_suit
         acting_team = TEAMS[player]
         winning_team = TEAMS[winner]
         lead_suit = self.trick_cards[0][1] // 13
 
+        # Determine who was winning *before* the acting player played
+        # by looking at all trick cards except the acting player's.
+        cards_before = [(p, c) for p, c in self.trick_cards if p != player]
+        winner_before = None
+        if cards_before:
+            winner_before = self._peek_trick_winner(cards_before)
+
         if winning_team == acting_team:
             if is_trump and winner == player:
-                # Won with a trump card
-                bonus += 0.3
+                # Efficient trump bonus: won trick with trump (+0.4)
+                bonus += 0.4
+
+                # Smart trump bonus: played the lowest winning trump (+0.5)
+                trump_cards_in_hand = [
+                    c for c in self.hands[player]
+                    if c // 13 == self.trump_suit
+                ]
+                # Include the card just played (already removed from hand)
+                all_trumps = sorted(
+                    trump_cards_in_hand + [card], key=lambda c: c % 13
+                )
+                # Find the lowest trump that would have won
+                # Need to beat all other cards in the trick
+                best_opponent_rank = -1
+                best_opponent_is_trump = False
+                for p, c in self.trick_cards:
+                    if p == player:
+                        continue
+                    c_suit = c // 13
+                    c_is_trump = has_trump and c_suit == self.trump_suit
+                    if c_is_trump:
+                        if c % 13 > best_opponent_rank or not best_opponent_is_trump:
+                            best_opponent_rank = c % 13
+                            best_opponent_is_trump = True
+                    elif c_suit == lead_suit and not best_opponent_is_trump:
+                        if c % 13 > best_opponent_rank:
+                            best_opponent_rank = c % 13
+
+                # Find lowest trump that beats the best opponent card
+                lowest_winning_trump = None
+                for t in all_trumps:
+                    t_rank = t % 13
+                    if best_opponent_is_trump:
+                        if t_rank > best_opponent_rank:
+                            lowest_winning_trump = t
+                            break
+                    else:
+                        # Any trump beats non-trump
+                        lowest_winning_trump = t
+                        break
+
+                if lowest_winning_trump is not None and card == lowest_winning_trump:
+                    bonus += 0.5
+
             elif card_suit == lead_suit and winner == player:
                 # Won with highest card of lead suit
                 bonus += 0.2
@@ -249,40 +306,67 @@ class WhistEnv(gym.Env):
                 # Wasted a trump on a trick the team lost
                 bonus -= 0.1
 
-        # Also penalise wasting trump when teammate already winning
+            # Must-trump penalty: had no lead suit, had trump, didn't play trump
+            if not is_trump and has_trump:
+                player_has_lead = any(
+                    c // 13 == lead_suit for c in self.hands[player]
+                )
+                player_has_trump = any(
+                    c // 13 == self.trump_suit for c in self.hands[player]
+                )
+                # Player couldn't follow suit (otherwise they would have been
+                # forced to), so check if they had trump available
+                if not player_has_lead and player_has_trump:
+                    bonus -= 0.4
+
+        # Penalise wasting trump when teammate already winning
         if is_trump and winning_team == acting_team and winner != player:
-            # Teammate already winning — trump was unnecessary
             bonus -= 0.1
+
+        # Wasted high card penalty: teammate was already winning and player
+        # threw a high card (rank >= Jack, i.e. rank index >= 9)
+        if (winner_before is not None
+                and TEAMS[winner_before] == acting_team
+                and winner_before != player
+                and card_rank >= 9):
+            bonus -= 0.3
 
         return bonus
 
-    def _resolve_trick(self) -> int:
-        """Determine the winner of the current trick."""
-        lead_suit = self.trick_cards[0][1] // 13
+    def _current_trick_winner(self) -> int:
+        """Return the player currently winning the trick (without resolving).
+
+        Assumes trick_cards is non-empty.
+        """
+        return self._peek_trick_winner(self.trick_cards)
+
+    def _peek_trick_winner(self, cards) -> int:
+        """Determine the winner among a list of (player, card) entries."""
+        lead_suit = cards[0][1] // 13
         has_trump = self.trump_suit != NO_TRUMP
 
-        best_player = self.trick_cards[0][0]
-        best_card = self.trick_cards[0][1]
+        best_player = cards[0][0]
+        best_card = cards[0][1]
         best_is_trump = has_trump and (best_card // 13) == self.trump_suit
 
-        for player, card in self.trick_cards[1:]:
-            card_suit = card // 13
-            is_trump = has_trump and card_suit == self.trump_suit
+        for p, c in cards[1:]:
+            c_suit = c // 13
+            c_is_trump = has_trump and c_suit == self.trump_suit
 
-            if is_trump and not best_is_trump:
-                # Trump beats non-trump
-                best_player, best_card, best_is_trump = player, card, True
-            elif is_trump and best_is_trump:
-                # Higher trump wins
-                if card % 13 > best_card % 13:
-                    best_player, best_card = player, card
-            elif card_suit == lead_suit and not best_is_trump:
-                # Same suit as lead, higher rank wins
-                if card % 13 > best_card % 13:
-                    best_player, best_card = player, card
-            # Off-suit non-trump cards cannot win
+            if c_is_trump and not best_is_trump:
+                best_player, best_card, best_is_trump = p, c, True
+            elif c_is_trump and best_is_trump:
+                if c % 13 > best_card % 13:
+                    best_player, best_card = p, c
+            elif c_suit == lead_suit and not best_is_trump:
+                if c % 13 > best_card % 13:
+                    best_player, best_card = p, c
 
         return best_player
+
+    def _resolve_trick(self) -> int:
+        """Determine the winner of the current trick."""
+        return self._peek_trick_winner(self.trick_cards)
 
     def render(self):
         if self.render_mode != "human":
