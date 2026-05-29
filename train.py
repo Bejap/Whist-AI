@@ -5,6 +5,7 @@ import glob
 import os
 import random
 import re
+import shutil
 import sys
 
 import numpy as np
@@ -53,6 +54,10 @@ LEAGUE_POOL_SIZE = 5        # number of checkpoints to keep in the opponent pool
 LEAGUE_LATEST_PROB = 0.70   # probability of using the latest policy
 OPPONENT_EPSILON = 0.10     # probability of random action for opponents
 
+# Entropy coefficient decay parameters (decayed manually in EpisodeTracker)
+ENT_COEF_START = 0.01
+ENT_COEF_END = 0.001
+
 
 # ---------------------------------------------------------------------------
 # Schedules
@@ -81,10 +86,9 @@ def handle_fresh_start():
     if not os.path.exists(flag):
         return
     print("► fresh_start.flag detected — wiping checkpoints and rewards.csv")
-    # Delete checkpoints
+    # Delete checkpoints directory
     if os.path.isdir(CHECKPOINT_DIR):
-        for f in glob.glob(os.path.join(CHECKPOINT_DIR, "*")):
-            os.remove(f)
+        shutil.rmtree(CHECKPOINT_DIR)
     # Delete rewards.csv
     if os.path.exists(REWARDS_CSV):
         os.remove(REWARDS_CSV)
@@ -276,7 +280,7 @@ class EpisodeTracker(BaseCallback):
 
                     # Manual entropy coefficient decay
                     progress = self.episode / TOTAL_EPISODES
-                    ent_coef = max(0.001, 0.01 * (1.0 - progress))
+                    ent_coef = max(ENT_COEF_END, ENT_COEF_START * (1.0 - progress))
                     self.model.ent_coef = ent_coef
 
                 # Checkpoint
@@ -324,7 +328,7 @@ def train():
         model = PPO.load(ckpt_path, env=env)
         # Apply updated schedule to resumed model
         model.learning_rate = LR_SCHEDULE
-        model.ent_coef = 0.01  # will be decayed by EpisodeTracker
+        model.ent_coef = ENT_COEF_START  # will be decayed by EpisodeTracker
         model._setup_lr_schedule()
     else:
         print("► Starting fresh training (episode 0)")
@@ -332,7 +336,7 @@ def train():
         model = PPO(
             "MlpPolicy", env,
             learning_rate=LR_SCHEDULE,
-            ent_coef=0.01,
+            ent_coef=ENT_COEF_START,
             **PPO_KWARGS,
         )
 
