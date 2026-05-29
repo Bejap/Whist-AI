@@ -37,7 +37,7 @@ def plot_rewards(csv_path=REWARDS_CSV, out_dir=GRAPH_DIR):
     fig, ax = plt.subplots(figsize=(10, 5))
     ax.plot(episodes, rewards, linewidth=0.8, alpha=0.6, label="avg reward")
 
-    # Smoothed trend line (rolling window of 50 log entries)
+    # Smoothed trend line (rolling window of 50 data points)
     if len(rewards) >= 50:
         window = 50
         smoothed = np.convolve(rewards, np.ones(window) / window, mode="valid")
