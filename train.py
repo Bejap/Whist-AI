@@ -31,7 +31,8 @@ LOG_EVERY = 500
 KEEP_CHECKPOINTS = 10
 
 # PPO hyper-parameters (small footprint)
-# learning_rate and ent_coef are set as schedules below
+# learning_rate is set as a schedule below; ent_coef is decayed manually
+# in the EpisodeTracker callback.
 PPO_KWARGS = dict(
     n_steps=512,          # rollout buffer length per update
     batch_size=64,
@@ -68,12 +69,28 @@ def linear_schedule(start: float, end: float):
 
 
 LR_SCHEDULE = linear_schedule(3e-4, 5e-5)
-ENT_COEF_SCHEDULE = linear_schedule(0.01, 0.001)
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def handle_fresh_start():
+    """If fresh_start.flag exists, delete all checkpoints and rewards.csv."""
+    flag = "fresh_start.flag"
+    if not os.path.exists(flag):
+        return
+    print("► fresh_start.flag detected — wiping checkpoints and rewards.csv")
+    # Delete checkpoints
+    if os.path.isdir(CHECKPOINT_DIR):
+        for f in glob.glob(os.path.join(CHECKPOINT_DIR, "*")):
+            os.remove(f)
+    # Delete rewards.csv
+    if os.path.exists(REWARDS_CSV):
+        os.remove(REWARDS_CSV)
+    # Delete the flag itself
+    os.remove(flag)
+    print("  ✓ Clean slate ready")
 
 def latest_checkpoint():
     """Return (path, episode) of the most recent checkpoint, or (None, 0)."""
@@ -257,6 +274,11 @@ class EpisodeTracker(BaseCallback):
                     append_reward(self.episode, avg_r)
                     self.pbar.set_postfix(avg_reward=f"{avg_r:.2f}")
 
+                    # Manual entropy coefficient decay
+                    progress = self.episode / TOTAL_EPISODES
+                    ent_coef = max(0.001, 0.01 * (1.0 - progress))
+                    self.model.ent_coef = ent_coef
+
                 # Checkpoint
                 if self.episode % CHECKPOINT_EVERY == 0:
                     save_checkpoint(self.model, self.episode)
@@ -289,6 +311,9 @@ class EpisodeTracker(BaseCallback):
 # ---------------------------------------------------------------------------
 
 def train():
+    # Check for fresh start flag
+    handle_fresh_start()
+
     # Resume from checkpoint if available
     ckpt_path, start_episode = latest_checkpoint()
 
@@ -297,11 +322,9 @@ def train():
     if ckpt_path is not None:
         print(f"► Resuming from checkpoint: {ckpt_path} (episode {start_episode})")
         model = PPO.load(ckpt_path, env=env)
-        # Apply updated schedules to resumed model
+        # Apply updated schedule to resumed model
         model.learning_rate = LR_SCHEDULE
-        model.ent_coef = ENT_COEF_SCHEDULE
-        # SB3 will call the schedule on the next _update_learning_rate(),
-        # but also sync the optimizer now for immediate effect.
+        model.ent_coef = 0.01  # will be decayed by EpisodeTracker
         model._setup_lr_schedule()
     else:
         print("► Starting fresh training (episode 0)")
@@ -309,7 +332,7 @@ def train():
         model = PPO(
             "MlpPolicy", env,
             learning_rate=LR_SCHEDULE,
-            ent_coef=ENT_COEF_SCHEDULE,
+            ent_coef=0.01,
             **PPO_KWARGS,
         )
 

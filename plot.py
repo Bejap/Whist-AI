@@ -5,6 +5,7 @@ import os
 import sys
 
 import numpy as np
+import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -19,23 +20,21 @@ def plot_rewards(csv_path=REWARDS_CSV, out_dir=GRAPH_DIR):
         print(f"Error: {csv_path} not found.")
         sys.exit(1)
 
-    episodes, rewards = [], []
-    with open(csv_path, newline="") as f:
-        reader = csv.reader(f)
-        next(reader, None)  # skip header
-        for row in reader:
-            if len(row) >= 2:
-                episodes.append(int(row[0]))
-                rewards.append(float(row[1]))
-
-    if not episodes:
+    df = pd.read_csv(csv_path)
+    if df.empty or "episode" not in df.columns or "avg_reward" not in df.columns:
         print("No data found in rewards.csv.")
         sys.exit(1)
 
+    # Sort by episode and drop duplicate episode rows (keep last occurrence)
+    df = df.sort_values("episode").drop_duplicates(subset="episode", keep="last").reset_index(drop=True)
+
+    episodes = df["episode"].values
+    rewards = df["avg_reward"].values
+
     os.makedirs(out_dir, exist_ok=True)
 
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.plot(episodes, rewards, linewidth=0.8, alpha=0.6, label="avg reward")
+    fig, ax = plt.subplots(figsize=(14, 6))
+    ax.plot(episodes, rewards, linewidth=0.8, alpha=0.3, color="steelblue", label="avg reward")
 
     # Smoothed trend line (rolling window of 50 data points)
     if len(rewards) >= 50:
@@ -46,14 +45,18 @@ def plot_rewards(csv_path=REWARDS_CSV, out_dir=GRAPH_DIR):
             linewidth=2, color="red", label=f"smoothed ({window}-pt)",
         )
 
+    # Horizontal break-even line at y=0
+    ax.axhline(y=0, color="grey", linestyle="--", linewidth=1, alpha=0.4)
+
     ax.set_xlabel("Episode")
     ax.set_ylabel("Average Reward")
-    ax.set_title(f"Training Reward (up to episode {episodes[-1]})")
-    ax.legend()
-    ax.grid(True, alpha=0.3)
+    last_ep = int(episodes[-1])
+    ax.set_title(f"Whist Agent \u2014 Training Reward ({last_ep:,} episodes)")
+    ax.legend(loc="lower right", framealpha=0.8)
+    ax.grid(True, alpha=0.3, linestyle="--")
     fig.tight_layout()
 
-    path = os.path.join(out_dir, f"reward_ep_{episodes[-1]}.png")
+    path = os.path.join(out_dir, f"reward_ep_{last_ep}.png")
     fig.savefig(path, dpi=100)
     plt.close(fig)
     print(f"Graph saved to {path}")
