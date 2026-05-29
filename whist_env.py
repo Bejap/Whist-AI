@@ -190,7 +190,8 @@ class WhistEnv(gym.Env):
         obs = np.zeros(167, dtype=np.float32)
 
         # Own hand (0-51)
-        for c in self.hands[self.current_player]:
+        pid = player_id if player_id is not None else self.current_player
+        for c in self.hands[pid]:
             obs[c] = 1.0
 
         # Played cards (52-103)
@@ -357,10 +358,6 @@ class SelfPlayWrapper(gym.Wrapper):
                     reward -= 1.0
 
             if terminated or truncated:
-                # Terminal bonus from learning player's perspective
-                tricks_won = self.env.team_tricks[team]
-                tricks_lost = self.env.team_tricks[1 - team]
-                reward += 3.0 if tricks_won > tricks_lost else -3.0
                 obs = self.env._get_obs(player_id=self._learning_player)
                 return obs, reward, terminated, truncated, info
 
