@@ -306,13 +306,18 @@ class SelfPlayWrapper(gym.Wrapper):
     perspective, it looks like a single-agent environment.
     """
 
-    def __init__(self, env, policy_fn=None):
+    def __init__(self, env, policy_fn=None, epsilon=0.0):
         super().__init__(env)
         self.policy_fn = policy_fn  # callable(obs, mask) -> action
+        self.epsilon = epsilon      # probability of random opponent action
 
     def set_policy(self, policy_fn):
         """Set the policy function used for opponent moves."""
         self.policy_fn = policy_fn
+
+    def set_epsilon(self, epsilon: float):
+        """Set the epsilon for opponent randomization."""
+        self.epsilon = epsilon
 
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
@@ -336,15 +341,19 @@ class SelfPlayWrapper(gym.Wrapper):
 
         # Let other players play until it's the learning player's turn again
         while self.env.current_player != self._learning_player:
+            mask = self.env.action_mask()
+            valid_actions = np.where(mask > 0)[0]
+
             if self.policy_fn is not None:
-                mask = self.env.action_mask()
-                other_obs = self.env._get_obs()
-                other_action = self.policy_fn(other_obs, mask)
+                # Epsilon-greedy: random valid action with probability epsilon
+                if self.epsilon > 0 and self.env.np_random.random() < self.epsilon:
+                    other_action = int(self.env.np_random.choice(valid_actions))
+                else:
+                    other_obs = self.env._get_obs()
+                    other_action = self.policy_fn(other_obs, mask)
             else:
                 # Random policy fallback
-                mask = self.env.action_mask()
-                valid_actions = np.where(mask > 0)[0]
-                other_action = self.env.np_random.choice(valid_actions)
+                other_action = int(self.env.np_random.choice(valid_actions))
 
             tricks_before_step = list(self.env.team_tricks)
             obs, _r, terminated, truncated, info = self.env.step(other_action)
