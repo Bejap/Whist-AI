@@ -3,6 +3,7 @@
 import csv
 import glob
 import os
+import random
 import re
 import sys
 
@@ -30,15 +31,14 @@ LOG_EVERY = 500
 KEEP_CHECKPOINTS = 10
 
 # PPO hyper-parameters (small footprint)
+# learning_rate and ent_coef are set as schedules below
 PPO_KWARGS = dict(
-    learning_rate=3e-4,
     n_steps=512,          # rollout buffer length per update
     batch_size=64,
     n_epochs=4,
     gamma=0.99,
     gae_lambda=0.95,
     clip_range=0.2,
-    ent_coef=0.01,
     verbose=0,
     device="cpu",
 )
@@ -46,6 +46,29 @@ PPO_KWARGS = dict(
 # Approximate timesteps per episode (13 tricks, 1 action per trick for the
 # learning player in the self-play wrapper).
 STEPS_PER_EPISODE = 13
+
+# League self-play settings
+LEAGUE_POOL_SIZE = 5        # number of checkpoints to keep in the opponent pool
+LEAGUE_LATEST_PROB = 0.70   # probability of using the latest policy
+OPPONENT_EPSILON = 0.10     # probability of random action for opponents
+
+
+# ---------------------------------------------------------------------------
+# Schedules
+# ---------------------------------------------------------------------------
+
+def linear_schedule(start: float, end: float):
+    """Return a callable that linearly decays from start to end.
+
+    The callable receives `progress_remaining` (1.0 → 0.0) from SB3.
+    """
+    def _schedule(progress_remaining: float) -> float:
+        return end + (start - end) * progress_remaining
+    return _schedule
+
+
+LR_SCHEDULE = linear_schedule(3e-4, 5e-5)
+ENT_COEF_SCHEDULE = linear_schedule(0.01, 0.001)
 
 
 # ---------------------------------------------------------------------------
@@ -67,6 +90,19 @@ def latest_checkpoint():
     files.sort(key=_ep)
     best = files[-1]
     return best, _ep(best)
+
+
+def get_checkpoint_pool():
+    """Return a list of up to LEAGUE_POOL_SIZE most recent checkpoint paths."""
+    files = glob.glob(os.path.join(CHECKPOINT_DIR, "whist_cp_*.pth"))
+    files += glob.glob(os.path.join(CHECKPOINT_DIR, "whist_cp_*.pth.zip"))
+    if not files:
+        return []
+    def _ep(f):
+        m = re.search(r"whist_cp_(\d+)\.pth", f)
+        return int(m.group(1)) if m else 0
+    files = sorted(set(files), key=_ep)
+    return files[-LEAGUE_POOL_SIZE:]
 
 
 def save_checkpoint(model, episode):
@@ -153,6 +189,39 @@ def make_policy_fn(model):
     return _policy
 
 
+def make_league_policy_fn(model, pool_paths):
+    """Create a league-based policy function.
+
+    - 70% chance: use the latest (live) model
+    - 30% chance: use a randomly chosen older checkpoint from the pool
+
+    Older checkpoints are loaded lazily and cached to avoid repeated I/O.
+    """
+    # Cache for loaded opponent policies (path -> PPO model)
+    _cache = {}
+
+    def _load_opponent(path):
+        if path not in _cache:
+            # Load policy parameters only (no env needed for inference)
+            _cache[path] = PPO.load(path, device="cpu")
+        return _cache[path]
+
+    def _policy(obs, mask):
+        # League selection
+        if len(pool_paths) <= 1:
+            return sample_action(model, obs, mask)
+        use_latest = random.random() < LEAGUE_LATEST_PROB
+        if use_latest:
+            return sample_action(model, obs, mask)
+        else:
+            # Pick from older checkpoints (all except the last/latest)
+            older = pool_paths[:-1]
+            chosen_path = random.choice(older)
+            opponent_model = _load_opponent(chosen_path)
+            return sample_action(opponent_model, obs, mask)
+    return _policy
+
+
 # ---------------------------------------------------------------------------
 # Callback for episode-level tracking
 # ---------------------------------------------------------------------------
@@ -195,10 +264,13 @@ class EpisodeTracker(BaseCallback):
                         f"  💾 Checkpoint saved at episode {self.episode}"
                     )
 
-                    # Refresh self-play policy with latest weights
+                    # Refresh self-play policy with league pool
+                    pool = get_checkpoint_pool()
                     env = self.model.get_env().envs[0]
                     if hasattr(env, "set_policy"):
-                        env.set_policy(make_policy_fn(self.model))
+                        env.set_policy(
+                            make_league_policy_fn(self.model, pool)
+                        )
 
                 # Reward graph
                 if self.episode % GRAPH_EVERY == 0:
@@ -220,18 +292,33 @@ def train():
     # Resume from checkpoint if available
     ckpt_path, start_episode = latest_checkpoint()
 
-    env = SelfPlayWrapper(WhistEnv())
+    env = SelfPlayWrapper(WhistEnv(), epsilon=OPPONENT_EPSILON)
 
     if ckpt_path is not None:
         print(f"► Resuming from checkpoint: {ckpt_path} (episode {start_episode})")
         model = PPO.load(ckpt_path, env=env)
+        # Apply updated schedules to resumed model
+        model.learning_rate = LR_SCHEDULE
+        model.ent_coef = ENT_COEF_SCHEDULE
+        # SB3 will call the schedule on the next _update_learning_rate(),
+        # but also sync the optimizer now for immediate effect.
+        model._setup_lr_schedule()
     else:
         print("► Starting fresh training (episode 0)")
         start_episode = 0
-        model = PPO("MlpPolicy", env, **PPO_KWARGS)
+        model = PPO(
+            "MlpPolicy", env,
+            learning_rate=LR_SCHEDULE,
+            ent_coef=ENT_COEF_SCHEDULE,
+            **PPO_KWARGS,
+        )
 
-    # Wire self-play policy
-    env.set_policy(make_policy_fn(model))
+    # Wire self-play policy with league pool
+    pool = get_checkpoint_pool()
+    if pool:
+        env.set_policy(make_league_policy_fn(model, pool))
+    else:
+        env.set_policy(make_policy_fn(model))
 
     remaining = TOTAL_EPISODES - start_episode
     if remaining <= 0:
