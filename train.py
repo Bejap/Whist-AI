@@ -94,7 +94,7 @@ def append_reward(episode, reward):
         writer.writerow([episode, f"{reward:.4f}"])
 
 
-def save_reward_graph(episode):
+def save_reward_graph():
     """Read rewards.csv and save a reward-over-time graph to graphs/."""
     if not os.path.exists(REWARDS_CSV):
         return
@@ -125,11 +125,11 @@ def save_reward_graph(episode):
 
     ax.set_xlabel("Episode")
     ax.set_ylabel("Average Reward")
-    ax.set_title(f"Training Reward (up to episode {episode})")
+    ax.set_title(f"Training Reward (up to episode {episodes[-1]})")
     ax.legend()
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
-    path = os.path.join(GRAPH_DIR, f"reward_ep_{episode}.png")
+    path = os.path.join(GRAPH_DIR, f"reward_ep_{episodes[-1]}.png")
     fig.savefig(path, dpi=100)
     plt.close(fig)
 
@@ -202,7 +202,7 @@ class EpisodeTracker(BaseCallback):
 
                 # Reward graph
                 if self.episode % GRAPH_EVERY == 0:
-                    save_reward_graph(self.episode)
+                    save_reward_graph()
                     tqdm.write(
                         f"  📈 Reward graph saved at episode {self.episode}"
                     )
@@ -253,7 +253,7 @@ def train():
 
     # Final save
     save_checkpoint(model, tracker.episode)
-    save_reward_graph(tracker.episode)
+    save_reward_graph()
     print(f"\nTraining complete. Final episode: {tracker.episode}")
 
 
