@@ -51,8 +51,8 @@ Key parameters in `train.py`:
 | `KEEP_CHECKPOINTS` | 10 | Number of recent checkpoints to keep |
 | `LOG_EVERY` | 500 | Log average reward every N episodes |
 
-Training now uses a **RecurrentPPO (LSTM)** policy with a custom
-**Transformer-based card feature extractor**.
+Training now uses standard **PPO** with the default **MlpPolicy** network
+for faster CPU training.
 Opponent self-play also uses an epsilon curriculum that starts more random and
 becomes stronger over time.
 
@@ -64,11 +64,8 @@ Watch the trained agent play a full round:
 python play.py
 ```
 
-Use MCTS-guided inference (enabled by default with 64 simulations per move):
-
-```bash
-python play.py --mode watch --mcts-sims 64
-```
+For future GPU-focused upgrades (RecurrentPPO, Transformer extractor, MCTS),
+see `Improvements.md`.
 
 ## Environment
 
