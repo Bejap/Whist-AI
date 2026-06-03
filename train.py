@@ -9,15 +9,15 @@ import shutil
 import sys
 
 import numpy as np
-import torch
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from stable_baselines3 import PPO
+from sb3_contrib import RecurrentPPO
 from stable_baselines3.common.callbacks import BaseCallback
 from tqdm import tqdm
 
-from whist_env import SelfPlayWrapper, WhistEnv, TEAMS
+from models import TransformerCardExtractor
+from whist_env import SelfPlayWrapper, WhistEnv
 
 # ---------------------------------------------------------------------------
 # Configuration – optimised for low-end hardware (~4 GB RAM, CPU only)
@@ -52,7 +52,19 @@ STEPS_PER_EPISODE = 13
 # League self-play settings
 LEAGUE_POOL_SIZE = 5        # number of checkpoints to keep in the opponent pool
 LEAGUE_LATEST_PROB = 0.70   # probability of using the latest policy
-OPPONENT_EPSILON = 0.10     # probability of random action for opponents
+OPPONENT_EPSILON_START = 0.20
+OPPONENT_EPSILON_END = 0.03
+
+POLICY_KWARGS = dict(
+    features_extractor_class=TransformerCardExtractor,
+    features_extractor_kwargs=dict(
+        card_embed_dim=64,
+        nhead=4,
+        num_layers=2,
+        features_dim=256,
+        dropout=0.1,
+    ),
+)
 
 # Entropy coefficient decay parameters (decayed manually in EpisodeTracker)
 ENT_COEF_START = 0.01
@@ -193,14 +205,16 @@ def save_reward_graph():
 
 def sample_action(model, obs, mask):
     """Sample an action from the model with action masking."""
-    obs_t = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0)
-    with torch.no_grad():
-        logits = model.policy.get_distribution(obs_t).distribution.logits
-    logits = logits.squeeze(0).numpy()
-    logits[mask == 0] = -1e8
-    probs = np.exp(logits - logits.max())
-    probs = probs / probs.sum()
-    return int(np.random.choice(len(probs), p=probs))
+    # RecurrentPPO does not expose a masked-action sampling API directly, so
+    # we sample with predict() and enforce legality against the env mask.
+    action, _ = model.predict(obs, deterministic=False)
+    action = int(action)
+    if mask[action] > 0:
+        return action
+    valid = np.where(mask > 0)[0]
+    if len(valid) == 0:
+        raise RuntimeError("No valid actions available for opponent policy.")
+    return int(np.random.choice(valid))
 
 
 def make_policy_fn(model):
@@ -218,13 +232,17 @@ def make_league_policy_fn(model, pool_paths):
 
     Older checkpoints are loaded lazily and cached to avoid repeated I/O.
     """
-    # Cache for loaded opponent policies (path -> PPO model)
+    # Cache for loaded opponent policies (path -> model)
     _cache = {}
 
     def _load_opponent(path):
         if path not in _cache:
-            # Load policy parameters only (no env needed for inference)
-            _cache[path] = PPO.load(path, device="cpu")
+            try:
+                # Load policy parameters only (no env needed for inference)
+                _cache[path] = RecurrentPPO.load(path, device="cpu")
+            except Exception as exc:
+                print(f"  ⚠️ Skipping incompatible league checkpoint {path}: {exc}")
+                _cache[path] = None
         return _cache[path]
 
     def _policy(obs, mask):
@@ -239,6 +257,8 @@ def make_league_policy_fn(model, pool_paths):
             older = pool_paths[:-1]
             chosen_path = random.choice(older)
             opponent_model = _load_opponent(chosen_path)
+            if opponent_model is None:
+                return sample_action(model, obs, mask)
             return sample_action(opponent_model, obs, mask)
     return _policy
 
@@ -283,6 +303,14 @@ class EpisodeTracker(BaseCallback):
                     ent_coef = max(ENT_COEF_END, ENT_COEF_START * (1.0 - progress))
                     self.model.ent_coef = ent_coef
 
+                    # Opponent randomisation schedule (high -> low epsilon)
+                    opp_epsilon = OPPONENT_EPSILON_END + (
+                        OPPONENT_EPSILON_START - OPPONENT_EPSILON_END
+                    ) * (1.0 - progress)
+                    env = self.model.get_env().envs[0]
+                    if hasattr(env, "set_epsilon"):
+                        env.set_epsilon(float(opp_epsilon))
+
                 # Checkpoint
                 if self.episode % CHECKPOINT_EVERY == 0:
                     save_checkpoint(self.model, self.episode)
@@ -321,22 +349,42 @@ def train():
     # Resume from checkpoint if available
     ckpt_path, start_episode = latest_checkpoint()
 
-    env = SelfPlayWrapper(WhistEnv(), epsilon=OPPONENT_EPSILON)
+    env = SelfPlayWrapper(WhistEnv(), epsilon=OPPONENT_EPSILON_START)
 
     if ckpt_path is not None:
-        print(f"► Resuming from checkpoint: {ckpt_path} (episode {start_episode})")
-        model = PPO.load(ckpt_path, env=env)
-        # Apply updated schedule to resumed model
-        model.learning_rate = LR_SCHEDULE
-        model.ent_coef = ENT_COEF_START  # will be decayed by EpisodeTracker
-        model._setup_lr_schedule()
+        print(f"► Attempting resume from checkpoint: {ckpt_path} (episode {start_episode})")
+        try:
+            model = RecurrentPPO.load(ckpt_path, env=env, device="cpu")
+            # Apply updated schedule to resumed model
+            model.learning_rate = LR_SCHEDULE
+            model.ent_coef = ENT_COEF_START  # will be decayed by EpisodeTracker
+            model._setup_lr_schedule()
+            print("  ✓ Recurrent checkpoint loaded")
+        except Exception as exc:
+            print(f"  ⚠️ Could not load checkpoint with new architecture: {exc}")
+            print(
+                "  ↳ Checkpoint is likely from legacy PPO/MlpPolicy; "
+                "starting a fresh RecurrentPPO run."
+            )
+            ckpt_path = None
+            start_episode = 0
+            model = RecurrentPPO(
+                "MlpLstmPolicy",
+                env,
+                learning_rate=LR_SCHEDULE,
+                ent_coef=ENT_COEF_START,
+                policy_kwargs=POLICY_KWARGS,
+                **PPO_KWARGS,
+            )
     else:
         print("► Starting fresh training (episode 0)")
         start_episode = 0
-        model = PPO(
-            "MlpPolicy", env,
+        model = RecurrentPPO(
+            "MlpLstmPolicy",
+            env,
             learning_rate=LR_SCHEDULE,
             ent_coef=ENT_COEF_START,
+            policy_kwargs=POLICY_KWARGS,
             **PPO_KWARGS,
         )
 
@@ -373,4 +421,3 @@ def train():
 
 if __name__ == "__main__":
     train()
-

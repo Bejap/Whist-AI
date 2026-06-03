@@ -15,6 +15,7 @@ Usage
 """
 
 import sys
+import copy
 
 import numpy as np
 import torch
@@ -58,6 +59,7 @@ def load_model():
     """Load the latest checkpoint."""
     from train import latest_checkpoint
     from stable_baselines3 import PPO
+    from sb3_contrib import RecurrentPPO
 
     ckpt_path, episode = latest_checkpoint()
     if ckpt_path is None:
@@ -65,18 +67,149 @@ def load_model():
         sys.exit(1)
 
     print(f"Loading checkpoint: {ckpt_path} (episode {episode})")
-    model = PPO.load(ckpt_path, device="cpu")
+    try:
+        model = RecurrentPPO.load(ckpt_path, device="cpu")
+        print("Model type: RecurrentPPO")
+    except Exception:
+        model = PPO.load(ckpt_path, device="cpu")
+        print("Model type: PPO")
     return model
 
 
-def agent_action(model, obs, mask) -> int:
-    """Pick a greedy action using the trained model with action masking."""
+def _fallback_priors(model, obs, mask, samples: int = 32) -> np.ndarray:
+    """Estimate masked action priors by repeated stochastic model sampling."""
+    valid = np.where(mask > 0)[0]
+    priors = np.zeros(NUM_CARDS, dtype=np.float32)
+    if len(valid) == 0:
+        return priors
+
+    for _ in range(samples):
+        action, _ = model.predict(obs, deterministic=False)
+        action = int(action)
+        if mask[action] <= 0:
+            action = int(np.random.choice(valid))
+        priors[action] += 1.0
+
+    if priors.sum() <= 0:
+        priors[valid] = 1.0 / len(valid)
+    else:
+        priors /= priors.sum()
+    return priors
+
+
+def policy_priors_and_value(model, obs, mask):
+    """Return (priors, value) for one state.
+
+    priors: np.ndarray shape (NUM_CARDS,), masked and normalised action probs.
+    value: scalar value-head estimate for the same observation.
+    """
     obs_t = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0)
-    with torch.no_grad():
-        logits = model.policy.get_distribution(obs_t).distribution.logits
-    logits = logits.squeeze(0).numpy()
-    logits[mask == 0] = -1e8
-    return int(np.argmax(logits))
+    priors = None
+
+    try:
+        with torch.no_grad():
+            logits = model.policy.get_distribution(obs_t).distribution.logits
+        logits = logits.squeeze(0).cpu().numpy()
+        logits[mask == 0] = -1e8
+        logits = logits - np.max(logits)
+        probs = np.exp(logits)
+        probs = np.nan_to_num(probs, nan=0.0, posinf=0.0, neginf=0.0)
+        probs[mask == 0] = 0.0
+        if probs.sum() <= 0:
+            priors = _fallback_priors(model, obs, mask)
+        else:
+            priors = probs / probs.sum()
+    except Exception:
+        priors = _fallback_priors(model, obs, mask)
+
+    try:
+        with torch.no_grad():
+            value = float(model.policy.predict_values(obs_t).cpu().numpy().reshape(-1)[0])
+    except Exception:
+        value = 0.0
+
+    return priors, value
+
+
+def _rollout_value(env, model, root_player: int, max_steps: int = 52) -> float:
+    """Mutate env with a rollout and return normalized root-team score."""
+    for _ in range(max_steps):
+        if env.done:
+            break
+        obs = env._get_obs()
+        mask = env.action_mask()
+        priors, _ = policy_priors_and_value(model, obs, mask)
+        valid = np.where(mask > 0)[0]
+        if len(valid) == 0:
+            break
+        valid_probs = priors[valid]
+        if valid_probs.sum() <= 0:
+            valid_probs = np.ones(len(valid), dtype=np.float32) / len(valid)
+        else:
+            valid_probs = valid_probs / valid_probs.sum()
+        action = int(np.random.choice(valid, p=valid_probs))
+        env.step(action)
+
+    team = TEAMS[root_player]
+    team_diff = env.team_tricks[team] - env.team_tricks[1 - team]
+    return team_diff / 13.0
+
+
+def mcts_action(env, model, sims: int = 64, c_puct: float = 1.25) -> int:
+    """Pick an action with a lightweight PUCT search at the root."""
+    root_player = env.current_player
+    obs = env._get_obs()
+    mask = env.action_mask()
+    valid = np.where(mask > 0)[0]
+    if len(valid) == 1:
+        return int(valid[0])
+
+    priors, root_value = policy_priors_and_value(model, obs, mask)
+    priors[mask == 0] = 0.0
+    if priors.sum() <= 0:
+        priors[valid] = 1.0 / len(valid)
+    else:
+        priors = priors / priors.sum()
+
+    q = np.zeros(NUM_CARDS, dtype=np.float32)
+    n = np.zeros(NUM_CARDS, dtype=np.float32)
+
+    if sims <= 0:
+        return int(valid[np.argmax(priors[valid])])
+
+    for _ in range(sims):
+        total_n = np.sum(n[valid]) + 1.0
+        u = c_puct * priors * np.sqrt(total_n) / (1.0 + n)
+        scores = q + u
+        scores[mask == 0] = -1e9
+        action = int(np.argmax(scores))
+
+        env_sim = copy.deepcopy(env)
+        env_sim.step(action)
+        rollout_val = _rollout_value(env_sim, model, root_player)
+        estimate = 0.5 * rollout_val + 0.5 * root_value
+
+        n[action] += 1.0
+        q[action] += (estimate - q[action]) / n[action]
+
+    best = valid[np.argmax(n[valid])]
+    return int(best)
+
+
+def agent_action(model, env, mcts_sims: int = 64) -> int:
+    """Pick an action using MCTS-guided search backed by policy/value priors."""
+    if mcts_sims > 0:
+        return mcts_action(env, model, sims=mcts_sims)
+    obs = env._get_obs()
+    mask = env.action_mask()
+    priors, _ = policy_priors_and_value(model, obs, mask)
+    action = int(np.argmax(priors))
+    if mask[action] <= 0:
+        valid = np.where(mask > 0)[0]
+        if len(valid) == 0:
+            raise RuntimeError("No valid actions available for agent action.")
+        return int(valid[0])
+    return action
 
 
 def random_action(env) -> int:
@@ -132,7 +265,7 @@ def choose_mode() -> str:
 # ---------------------------------------------------------------------------
 
 
-def run_game(mode: str) -> None:
+def run_game(mode: str, mcts_sims: int) -> None:
     """Run a complete Whist round in the requested mode."""
     model = load_model()
     env = WhistEnv(render_mode=None)  # display is handled here, not in env
@@ -174,9 +307,7 @@ def run_game(mode: str) -> None:
             action = random_action(env)
             print(f"  → P{player + 1} plays: {card_short(action)}")
         else:
-            mask = env.action_mask()
-            obs = env._get_obs()
-            action = agent_action(model, obs, mask)
+            action = agent_action(model, env, mcts_sims=mcts_sims)
             print(f"  → P{player + 1} plays: {card_short(action)}")
 
         trick_display.append((player, action))
@@ -227,7 +358,13 @@ if __name__ == "__main__":
             "play   – you play as P1 against the AI."
         ),
     )
+    parser.add_argument(
+        "--mcts-sims",
+        type=int,
+        default=64,
+        help="Number of root MCTS simulations for AI moves (0 disables search).",
+    )
     args = parser.parse_args()
 
     mode = args.mode if args.mode else choose_mode()
-    run_game(mode)
+    run_game(mode, mcts_sims=max(0, args.mcts_sims))
