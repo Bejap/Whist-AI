@@ -77,7 +77,7 @@ def load_model():
 
 
 def _fallback_priors(model, obs, mask, samples: int = 32) -> np.ndarray:
-    """Estimate policy priors by repeated stochastic sampling."""
+    """Estimate masked action priors by repeated stochastic model sampling."""
     valid = np.where(mask > 0)[0]
     priors = np.zeros(NUM_CARDS, dtype=np.float32)
     if len(valid) == 0:
@@ -98,7 +98,11 @@ def _fallback_priors(model, obs, mask, samples: int = 32) -> np.ndarray:
 
 
 def policy_priors_and_value(model, obs, mask):
-    """Return masked policy priors and value estimate for an observation."""
+    """Return (priors, value) for one state.
+
+    priors: np.ndarray shape (NUM_CARDS,), masked and normalised action probs.
+    value: scalar value-head estimate for the same observation.
+    """
     obs_t = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0)
     priors = None
 
@@ -109,7 +113,12 @@ def policy_priors_and_value(model, obs, mask):
         logits[mask == 0] = -1e8
         logits = logits - np.max(logits)
         probs = np.exp(logits)
-        priors = probs / (np.sum(probs) + 1e-8)
+        probs = np.nan_to_num(probs, nan=0.0, posinf=0.0, neginf=0.0)
+        probs[mask == 0] = 0.0
+        if probs.sum() <= 0:
+            priors = _fallback_priors(model, obs, mask)
+        else:
+            priors = probs / probs.sum()
     except Exception:
         priors = _fallback_priors(model, obs, mask)
 
@@ -123,7 +132,7 @@ def policy_priors_and_value(model, obs, mask):
 
 
 def _rollout_value(env, model, root_player: int, max_steps: int = 52) -> float:
-    """Simulate from env until terminal or step budget and return team score."""
+    """Mutate env with a rollout and return normalized root-team score."""
     for _ in range(max_steps):
         if env.done:
             break
@@ -133,9 +142,12 @@ def _rollout_value(env, model, root_player: int, max_steps: int = 52) -> float:
         valid = np.where(mask > 0)[0]
         if len(valid) == 0:
             break
-        action = int(np.random.choice(np.arange(NUM_CARDS), p=priors))
-        if mask[action] <= 0:
-            action = int(np.random.choice(valid))
+        valid_probs = priors[valid]
+        if valid_probs.sum() <= 0:
+            valid_probs = np.ones(len(valid), dtype=np.float32) / len(valid)
+        else:
+            valid_probs = valid_probs / valid_probs.sum()
+        action = int(np.random.choice(valid, p=valid_probs))
         env.step(action)
 
     team = TEAMS[root_player]
@@ -154,12 +166,18 @@ def mcts_action(env, model, sims: int = 64, c_puct: float = 1.25) -> int:
 
     priors, root_value = policy_priors_and_value(model, obs, mask)
     priors[mask == 0] = 0.0
-    priors = priors / (priors.sum() + 1e-8)
+    if priors.sum() <= 0:
+        priors[valid] = 1.0 / len(valid)
+    else:
+        priors = priors / priors.sum()
 
     q = np.zeros(NUM_CARDS, dtype=np.float32)
     n = np.zeros(NUM_CARDS, dtype=np.float32)
 
-    for _ in range(max(1, sims)):
+    if sims <= 0:
+        return int(valid[np.argmax(priors[valid])])
+
+    for _ in range(sims):
         total_n = np.sum(n[valid]) + 1.0
         u = c_puct * priors * np.sqrt(total_n) / (1.0 + n)
         scores = q + u
@@ -185,7 +203,13 @@ def agent_action(model, env, mcts_sims: int = 64) -> int:
     obs = env._get_obs()
     mask = env.action_mask()
     priors, _ = policy_priors_and_value(model, obs, mask)
-    return int(np.argmax(priors))
+    action = int(np.argmax(priors))
+    if mask[action] <= 0:
+        valid = np.where(mask > 0)[0]
+        if len(valid) == 0:
+            raise RuntimeError("No valid actions available for agent action.")
+        return int(valid[0])
+    return action
 
 
 def random_action(env) -> int:

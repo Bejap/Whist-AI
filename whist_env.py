@@ -8,6 +8,7 @@ from gymnasium import spaces
 # Card encoding: 0-51, suit = card // 13, rank = card % 13
 SUITS = ["Clubs", "Diamonds", "Hearts", "Spades"]
 NO_TRUMP = 4  # sentinel value: no trump suit this round
+NO_LEAD_SUIT = 4  # sentinel value in lead-suit one-hot when trick is empty
 RANKS = [
     "2", "3", "4", "5", "6", "7", "8", "9", "10",
     "Jack", "Queen", "King", "Ace",
@@ -237,7 +238,7 @@ class WhistEnv(gym.Env):
         idx += OBS_HAND
 
         # Played cards by player
-        obs[idx: idx + OBS_PLAYED_BY_PLAYER] = self.played_cards_by_player.reshape(-1)
+        obs[idx : idx + OBS_PLAYED_BY_PLAYER] = self.played_cards_by_player.reshape(-1)
         idx += OBS_PLAYED_BY_PLAYER
 
         # Current trick cards
@@ -270,11 +271,11 @@ class WhistEnv(gym.Env):
             lead_suit = self.trick_cards[0][1] // 13
             obs[idx + lead_suit] = 1.0
         else:
-            obs[idx + NO_TRUMP] = 1.0
+            obs[idx + NO_LEAD_SUIT] = 1.0
         idx += OBS_LEAD_SUIT
 
         # Trump exhaustion per seat
-        obs[idx: idx + OBS_TRUMP_VOID] = self.trump_void
+        obs[idx : idx + OBS_TRUMP_VOID] = self.trump_void
         idx += OBS_TRUMP_VOID
 
         # Trick position (seat index relative to lead seat)

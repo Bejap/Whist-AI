@@ -28,6 +28,7 @@ class TransformerCardExtractor(BaseFeaturesExtractor):
         super().__init__(observation_space, features_dim)
         self.card_embed = nn.Embedding(NUM_CARDS, card_embed_dim)
         self.type_embed = nn.Embedding(2, card_embed_dim)  # hand / trick
+        # Static card index tensor; regenerated from code and not needed in checkpoints.
         self.register_buffer("card_ids", torch.arange(NUM_CARDS), persistent=False)
 
         encoder_layer = nn.TransformerEncoderLayer(
@@ -72,7 +73,8 @@ class TransformerCardExtractor(BaseFeaturesExtractor):
         trick_tokens = (card_emb + trick_type) * trick.unsqueeze(-1)
         tokens = torch.cat([hand_tokens, trick_tokens], dim=1)
 
-        padding_mask = torch.cat([hand <= 0, trick <= 0], dim=1)
+        # hand/trick are binary indicator planes (1 = card present, 0 = absent).
+        padding_mask = torch.cat([hand == 0, trick == 0], dim=1)
         encoded = self.encoder(tokens, src_key_padding_mask=padding_mask)
         active = (~padding_mask).unsqueeze(-1).float()
         pooled = (encoded * active).sum(dim=1) / active.sum(dim=1).clamp_min(1.0)

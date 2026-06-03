@@ -205,13 +205,15 @@ def save_reward_graph():
 
 def sample_action(model, obs, mask):
     """Sample an action from the model with action masking."""
+    # RecurrentPPO does not expose a masked-action sampling API directly, so
+    # we sample with predict() and enforce legality against the env mask.
     action, _ = model.predict(obs, deterministic=False)
     action = int(action)
     if mask[action] > 0:
         return action
     valid = np.where(mask > 0)[0]
     if len(valid) == 0:
-        return 0
+        raise RuntimeError("No valid actions available for opponent policy.")
     return int(np.random.choice(valid))
 
 
@@ -238,7 +240,8 @@ def make_league_policy_fn(model, pool_paths):
             try:
                 # Load policy parameters only (no env needed for inference)
                 _cache[path] = RecurrentPPO.load(path, device="cpu")
-            except Exception:
+            except Exception as exc:
+                print(f"  ⚠️ Skipping incompatible league checkpoint {path}: {exc}")
                 _cache[path] = None
         return _cache[path]
 
@@ -359,7 +362,10 @@ def train():
             print("  ✓ Recurrent checkpoint loaded")
         except Exception as exc:
             print(f"  ⚠️ Could not load checkpoint with new architecture: {exc}")
-            print("  ↳ Starting fresh training run instead.")
+            print(
+                "  ↳ Checkpoint is likely from legacy PPO/MlpPolicy; "
+                "starting a fresh RecurrentPPO run."
+            )
             ckpt_path = None
             start_episode = 0
             model = RecurrentPPO(
