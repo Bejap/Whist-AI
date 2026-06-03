@@ -12,11 +12,10 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from sb3_contrib import RecurrentPPO
+from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback
 from tqdm import tqdm
 
-from models import TransformerCardExtractor
 from whist_env import SelfPlayWrapper, WhistEnv
 
 # ---------------------------------------------------------------------------
@@ -54,17 +53,6 @@ LEAGUE_POOL_SIZE = 5        # number of checkpoints to keep in the opponent pool
 LEAGUE_LATEST_PROB = 0.70   # probability of using the latest policy
 OPPONENT_EPSILON_START = 0.20
 OPPONENT_EPSILON_END = 0.03
-
-POLICY_KWARGS = dict(
-    features_extractor_class=TransformerCardExtractor,
-    features_extractor_kwargs=dict(
-        card_embed_dim=64,
-        nhead=4,
-        num_layers=2,
-        features_dim=256,
-        dropout=0.1,
-    ),
-)
 
 # Entropy coefficient decay parameters (decayed manually in EpisodeTracker)
 ENT_COEF_START = 0.01
@@ -205,8 +193,8 @@ def save_reward_graph():
 
 def sample_action(model, obs, mask):
     """Sample an action from the model with action masking."""
-    # RecurrentPPO does not expose a masked-action sampling API directly, so
-    # we sample with predict() and enforce legality against the env mask.
+    # PPO does not expose a masked-action sampling API directly, so we sample
+    # with predict() and enforce legality against the env mask.
     action, _ = model.predict(obs, deterministic=False)
     action = int(action)
     if mask[action] > 0:
@@ -239,7 +227,7 @@ def make_league_policy_fn(model, pool_paths):
         if path not in _cache:
             try:
                 # Load policy parameters only (no env needed for inference)
-                _cache[path] = RecurrentPPO.load(path, device="cpu")
+                _cache[path] = PPO.load(path, device="cpu")
             except Exception as exc:
                 print(f"  ⚠️ Skipping incompatible league checkpoint {path}: {exc}")
                 _cache[path] = None
@@ -354,37 +342,35 @@ def train():
     if ckpt_path is not None:
         print(f"► Attempting resume from checkpoint: {ckpt_path} (episode {start_episode})")
         try:
-            model = RecurrentPPO.load(ckpt_path, env=env, device="cpu")
+            model = PPO.load(ckpt_path, env=env, device="cpu")
             # Apply updated schedule to resumed model
             model.learning_rate = LR_SCHEDULE
             model.ent_coef = ENT_COEF_START  # will be decayed by EpisodeTracker
             model._setup_lr_schedule()
-            print("  ✓ Recurrent checkpoint loaded")
+            print("  ✓ PPO checkpoint loaded")
         except Exception as exc:
-            print(f"  ⚠️ Could not load checkpoint with new architecture: {exc}")
+            print(f"  ⚠️ Could not load checkpoint with current PPO architecture: {exc}")
             print(
-                "  ↳ Checkpoint is likely from legacy PPO/MlpPolicy; "
-                "starting a fresh RecurrentPPO run."
+                "  ↳ Checkpoint is likely from legacy RecurrentPPO setup; "
+                "starting a fresh PPO/MlpPolicy run."
             )
             ckpt_path = None
             start_episode = 0
-            model = RecurrentPPO(
-                "MlpLstmPolicy",
+            model = PPO(
+                "MlpPolicy",
                 env,
                 learning_rate=LR_SCHEDULE,
                 ent_coef=ENT_COEF_START,
-                policy_kwargs=POLICY_KWARGS,
                 **PPO_KWARGS,
             )
     else:
         print("► Starting fresh training (episode 0)")
         start_episode = 0
-        model = RecurrentPPO(
-            "MlpLstmPolicy",
+        model = PPO(
+            "MlpPolicy",
             env,
             learning_rate=LR_SCHEDULE,
             ent_coef=ENT_COEF_START,
-            policy_kwargs=POLICY_KWARGS,
             **PPO_KWARGS,
         )
 
