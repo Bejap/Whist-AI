@@ -19,4 +19,4 @@ Before enabling GPU training, migrate the following components:
 - Monte Carlo Tree Search with N simulations per move
 - Use the trained policy as a rollout heuristic
 - Benefit: significantly stronger play at inference time, no retraining needed
-- Note: 64 sims per move = ~3000 extra simulations per episode if used during training
+- Note: 64 sims per move × 52 moves = ~3300 extra simulations per episode if used during training
