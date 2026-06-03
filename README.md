@@ -51,6 +51,11 @@ Key parameters in `train.py`:
 | `KEEP_CHECKPOINTS` | 10 | Number of recent checkpoints to keep |
 | `LOG_EVERY` | 500 | Log average reward every N episodes |
 
+Training now uses a **RecurrentPPO (LSTM)** policy with a custom
+**Transformer-based card feature extractor**.
+Opponent self-play also uses an epsilon curriculum that starts more random and
+becomes stronger over time.
+
 ## Playing
 
 Watch the trained agent play a full round:
@@ -59,17 +64,27 @@ Watch the trained agent play a full round:
 python play.py
 ```
 
+Use MCTS-guided inference (enabled by default with 64 simulations per move):
+
+```bash
+python play.py --mode watch --mcts-sims 64
+```
+
 ## Environment
 
 The Whist environment (`whist_env.py`) follows the Gymnasium API.
 
-**Observation space** — 167-dimensional vector:
+**Observation space** — 340-dimensional vector:
 - Own hand (52 bits)
-- Played cards (52 bits)
+- Per-player played cards (4 × 52 bits)
 - Current trick cards (52 bits)
 - Trump suit (5 bits, one-hot)
 - Team tricks (2 floats, normalised)
 - Learning player seat (4 bits, one-hot)
+- Current trick winner (4 bits, one-hot)
+- Lead suit (5 bits, one-hot; includes "no lead yet")
+- Trump exhaustion flags (4 bits, one per seat)
+- Trick position in current trick (4 bits, one-hot)
 
 **Action space** — Discrete(52), masked to valid cards in hand.
 

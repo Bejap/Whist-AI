@@ -17,6 +17,30 @@ NUM_PLAYERS = 4
 CARDS_PER_PLAYER = 13
 NUM_TRICKS = 13
 
+# Observation layout sizes
+OBS_HAND = NUM_CARDS
+OBS_PLAYED_BY_PLAYER = NUM_PLAYERS * NUM_CARDS
+OBS_CURRENT_TRICK = NUM_CARDS
+OBS_TRUMP = 5
+OBS_TEAM_TRICKS = 2
+OBS_PLAYER_ID = NUM_PLAYERS
+OBS_TRICK_WINNER = NUM_PLAYERS
+OBS_LEAD_SUIT = 5
+OBS_TRUMP_VOID = NUM_PLAYERS
+OBS_TRICK_POSITION = NUM_PLAYERS
+OBS_SIZE = (
+    OBS_HAND
+    + OBS_PLAYED_BY_PLAYER
+    + OBS_CURRENT_TRICK
+    + OBS_TRUMP
+    + OBS_TEAM_TRICKS
+    + OBS_PLAYER_ID
+    + OBS_TRICK_WINNER
+    + OBS_LEAD_SUIT
+    + OBS_TRUMP_VOID
+    + OBS_TRICK_POSITION
+)
+
 # Teams: team 0 = players 0, 2; team 1 = players 1, 3
 TEAMS = {0: 0, 1: 1, 2: 0, 3: 1}
 
@@ -36,15 +60,18 @@ def trump_name(trump_suit: int) -> str:
 class WhistEnv(gym.Env):
     """Gymnasium environment for 4-player Whist.
 
-    Observation (length 171):
+    Observation (length 340):
         - own hand:              52 bits (one-hot)
-        - played cards:          52 bits (cards already used in previous tricks)
+        - played cards by seat: 208 bits (4 × 52)
         - current trick:         52 bits (cards on the table this trick, up to 3)
         - trump suit:             5 bits (one-hot; index 0-3 = suit, index 4 = no trump)
         - team tricks:            2 floats (team0 tricks / 13, team1 tricks / 13)
         - learning player id:     4 bits (one-hot encoding of seat 0-3)
         - current trick winner:   4 bits (one-hot of player currently winning trick)
-    Total = 52 + 52 + 52 + 5 + 2 + 4 + 4 = 171
+        - lead suit:              5 bits (one-hot; index 4 = no lead yet)
+        - trump exhaustion:       4 bits (one flag per seat)
+        - trick position:         4 bits (one-hot position in trick for observing seat)
+    Total = 52 + 208 + 52 + 5 + 2 + 4 + 4 + 5 + 4 + 4 = 340
 
     Action space: Discrete(52), masked to valid cards in hand.
     """
@@ -56,7 +83,7 @@ class WhistEnv(gym.Env):
         self.render_mode = render_mode
 
         self.observation_space = spaces.Box(
-            low=0.0, high=1.0, shape=(171,), dtype=np.float32
+            low=0.0, high=1.0, shape=(OBS_SIZE,), dtype=np.float32
         )
         self.action_space = spaces.Discrete(NUM_CARDS)
 
@@ -66,7 +93,10 @@ class WhistEnv(gym.Env):
         self.current_player = 0
         self.trick_cards = []  # list of (player, card) for current trick
         self.lead_player = 0
-        self.played_cards = np.zeros(NUM_CARDS, dtype=np.float32)
+        self.played_cards_by_player = np.zeros(
+            (NUM_PLAYERS, NUM_CARDS), dtype=np.float32
+        )
+        self.trump_void = np.zeros(NUM_PLAYERS, dtype=np.float32)
         self.team_tricks = [0, 0]
         self.tricks_played = 0
         self.done = False
@@ -88,7 +118,10 @@ class WhistEnv(gym.Env):
         self.current_player = 0
         self.lead_player = 0
         self.trick_cards = []
-        self.played_cards = np.zeros(NUM_CARDS, dtype=np.float32)
+        self.played_cards_by_player = np.zeros(
+            (NUM_PLAYERS, NUM_CARDS), dtype=np.float32
+        )
+        self.trump_void = np.zeros(NUM_PLAYERS, dtype=np.float32)
         self.team_tricks = [0, 0]
         self.tricks_played = 0
         self.done = False
@@ -109,10 +142,16 @@ class WhistEnv(gym.Env):
         card = action
         player = self.current_player
 
+        # Infer trump exhaustion: if trump is led and a player cannot follow trump.
+        if self.trick_cards and self.trump_suit != NO_TRUMP:
+            lead_suit = self.trick_cards[0][1] // 13
+            if lead_suit == self.trump_suit and (card // 13) != self.trump_suit:
+                self.trump_void[player] = 1.0
+
         # Play card
         self.hands[player].remove(card)
         self.trick_cards.append((player, card))
-        self.played_cards[card] = 1.0
+        self.played_cards_by_player[player, card] = 1.0
 
         reward = invalid_penalty
         terminated = False
@@ -188,35 +227,60 @@ class WhistEnv(gym.Env):
             player_id: Optional seat id (0-3) to encode in the observation.
                        When None, defaults to current_player.
         """
-        obs = np.zeros(171, dtype=np.float32)
+        obs = np.zeros(OBS_SIZE, dtype=np.float32)
+        idx = 0
 
-        # Own hand (0-51)
+        # Own hand
         pid = player_id if player_id is not None else self.current_player
         for c in self.hands[pid]:
-            obs[c] = 1.0
+            obs[idx + c] = 1.0
+        idx += OBS_HAND
 
-        # Played cards (52-103)
-        obs[52:104] = self.played_cards
+        # Played cards by player
+        obs[idx: idx + OBS_PLAYED_BY_PLAYER] = self.played_cards_by_player.reshape(-1)
+        idx += OBS_PLAYED_BY_PLAYER
 
-        # Current trick cards (104-155)
+        # Current trick cards
         for _, card in self.trick_cards:
-            obs[104 + card] = 1.0
+            obs[idx + card] = 1.0
+        idx += OBS_CURRENT_TRICK
 
-        # Trump suit one-hot (156-160): 5 bits (0-3 = suit, 4 = no trump)
-        obs[156 + self.trump_suit] = 1.0
+        # Trump suit one-hot
+        obs[idx + self.trump_suit] = 1.0
+        idx += OBS_TRUMP
 
-        # Team tricks normalised (161-162)
-        obs[161] = self.team_tricks[0] / 13.0
-        obs[162] = self.team_tricks[1] / 13.0
+        # Team tricks normalised
+        obs[idx] = self.team_tricks[0] / 13.0
+        obs[idx + 1] = self.team_tricks[1] / 13.0
+        idx += OBS_TEAM_TRICKS
 
-        # Learning player id one-hot (163-166)
+        # Learning player id one-hot
         pid = player_id if player_id is not None else self.current_player
-        obs[163 + pid] = 1.0
+        obs[idx + pid] = 1.0
+        idx += OBS_PLAYER_ID
 
-        # Current trick winner one-hot (167-170)
+        # Current trick winner one-hot
         if self.trick_cards:
             tw = self._current_trick_winner()
-            obs[167 + tw] = 1.0
+            obs[idx + tw] = 1.0
+        idx += OBS_TRICK_WINNER
+
+        # Lead suit one-hot (index 4 means no lead yet)
+        if self.trick_cards:
+            lead_suit = self.trick_cards[0][1] // 13
+            obs[idx + lead_suit] = 1.0
+        else:
+            obs[idx + NO_TRUMP] = 1.0
+        idx += OBS_LEAD_SUIT
+
+        # Trump exhaustion per seat
+        obs[idx: idx + OBS_TRUMP_VOID] = self.trump_void
+        idx += OBS_TRUMP_VOID
+
+        # Trick position (seat index relative to lead seat)
+        lead = self.trick_cards[0][0] if self.trick_cards else self.current_player
+        trick_pos = (pid - lead) % NUM_PLAYERS
+        obs[idx + trick_pos] = 1.0
 
         return obs
 
@@ -226,6 +290,7 @@ class WhistEnv(gym.Env):
             "trump_suit": self.trump_suit,
             "team_tricks": list(self.team_tricks),
             "tricks_played": self.tricks_played,
+            "trump_void": self.trump_void.astype(int).tolist(),
             "action_mask": self.action_mask(),
         }
 
