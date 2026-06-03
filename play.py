@@ -19,7 +19,7 @@ import sys
 import numpy as np
 import torch
 
-from whist_env import WhistEnv, card_name, trump_name, SUITS, TEAMS, NUM_CARDS
+from whist_env import WhistEnv, card_name, trump_name, SUITS, TEAMS, NUM_CARDS, NUM_PLAYERS
 
 # ---------------------------------------------------------------------------
 # Card display helpers
@@ -184,11 +184,11 @@ def run_game(mode: str) -> None:
         env.step(action)
 
         # --- Trick just resolved (4 cards played) ---
-        if len(trick_display) == NUM_CARDS // 13 and len(env.trick_cards) == 0:
+        if len(trick_display) == NUM_PLAYERS and len(env.trick_cards) == 0:
             print_trick_summary(trick_num, trick_display)
-            winner = env.lead_player  # env sets lead_player = trick winner after resolution
+            trick_winner = env.lead_player  # env sets lead_player = trick winner after resolution
             print(
-                f"  ★ P{winner + 1} wins Trick {trick_num}!  "
+                f"  ★ P{trick_winner + 1} wins Trick {trick_num}!  "
                 f"Score → T0: {env.team_tricks[0]}  T1: {env.team_tricks[1]}"
             )
             if not env.done and mode in ("play", "watch"):
