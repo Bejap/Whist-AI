@@ -38,9 +38,9 @@ DEVICE = os.getenv("WHIST_DEVICE", "cpu")
 # episodes have finished yet.  Set to 0 to disable.
 HEARTBEAT_INTERVAL_SECS = 10
 
-NUM_ENVS = 16  # parallel environments for GPU utilisation
+NUM_ENVS = 16  # parallel environments for throughput
 
-# PPO hyper-parameters – tuned for RTX 3090 / GPU throughput
+# PPO hyper-parameters
 # n_steps per env; total rollout = NUM_ENVS × n_steps = 4096
 # learning_rate is set as a schedule below; ent_coef is decayed manually
 # in the EpisodeTracker callback.

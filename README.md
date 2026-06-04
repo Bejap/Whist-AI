@@ -58,8 +58,9 @@ becomes stronger over time.
 
 ### GPU usage
 
-By default, training/inference use `WHIST_DEVICE=auto`, which lets SB3/PyTorch
-pick GPU when available and fall back to CPU otherwise.
+By default, training/inference use `WHIST_DEVICE=cpu` so SB3 trains on CPU,
+which is the correct choice for MlpPolicy.  Set `WHIST_DEVICE=cuda` to train
+on NVIDIA GPU if you have a CUDA-enabled PyTorch build.
 
 ```bash
 # Auto-select (default)
