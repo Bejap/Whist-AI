@@ -364,18 +364,33 @@ class EpisodeTracker(BaseCallback):
 # ---------------------------------------------------------------------------
 
 def train():
+    print("► Training run started.", flush=True)
+
     # Check for fresh start flag
     handle_fresh_start()
 
     # Resume from checkpoint if available
     ckpt_path, start_episode = latest_checkpoint()
+    if ckpt_path is not None:
+        print(
+            f"► Checkpoint status: found {ckpt_path} (episode {start_episode})",
+            flush=True,
+        )
+    else:
+        print("► Checkpoint status: no checkpoint found (fresh start).", flush=True)
 
     def make_env():
         def _init():
             return SelfPlayWrapper(WhistEnv(), epsilon=OPPONENT_EPSILON_START)
         return _init
 
+    print(f"► Creating SubprocVecEnv with {NUM_ENVS} workers...", flush=True)
+    env_init_t0 = time.monotonic()
     env = SubprocVecEnv([make_env() for _ in range(NUM_ENVS)])
+    print(
+        f"  ✓ SubprocVecEnv ready in {time.monotonic() - env_init_t0:.1f}s",
+        flush=True,
+    )
 
     if ckpt_path is not None:
         print(f"► Attempting resume from checkpoint: {ckpt_path} (episode {start_episode})")
@@ -411,9 +426,12 @@ def train():
             **PPO_KWARGS,
         )
 
-    print(f"► Requested device: {DEVICE}")
-    print(f"► Active device: {getattr(model, 'device', 'unknown')}")
-    print(f"► Parallel envs: {NUM_ENVS} (total rollout: {NUM_ENVS * PPO_KWARGS['n_steps']} steps)")
+    print(f"► Requested device: {DEVICE}", flush=True)
+    print(f"► Active device: {getattr(model, 'device', 'unknown')}", flush=True)
+    print(
+        f"► Parallel envs: {NUM_ENVS} (total rollout: {NUM_ENVS * PPO_KWARGS['n_steps']} steps)",
+        flush=True,
+    )
 
     # Wire self-play policy with league pool
     pool = get_checkpoint_pool()
@@ -434,8 +452,11 @@ def train():
 
     # Estimate total timesteps needed (with margin)
     total_timesteps = remaining * STEPS_PER_EPISODE * 2
-    print(f"► Total timesteps planned: {total_timesteps:,}")
-    print(f"► Starting model.learn() — heartbeat every {HEARTBEAT_INTERVAL_SECS}s …")
+    print(f"► Total timesteps planned: {total_timesteps:,}", flush=True)
+    print(
+        f"► Starting model.learn() — heartbeat every {HEARTBEAT_INTERVAL_SECS}s …",
+        flush=True,
+    )
     model.learn(
         total_timesteps=total_timesteps,
         callback=tracker,
