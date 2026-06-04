@@ -56,6 +56,30 @@ Training now uses a **RecurrentPPO (LSTM)** policy with a custom
 Opponent self-play also uses an epsilon curriculum that starts more random and
 becomes stronger over time.
 
+### GPU usage
+
+By default, training/inference use `WHIST_DEVICE=auto`, which lets SB3/PyTorch
+pick GPU when available and fall back to CPU otherwise.
+
+```bash
+# Auto-select (default)
+python train.py
+
+# Force a specific device
+WHIST_DEVICE=cuda python train.py
+WHIST_DEVICE=cpu python train.py
+```
+
+You can use the same variable for gameplay:
+
+```bash
+WHIST_DEVICE=auto python play.py --mode watch
+```
+
+If it still runs on CPU, your PyTorch install likely has no GPU backend.
+NVIDIA requires a CUDA-enabled PyTorch build; AMD requires a ROCm-enabled
+PyTorch build (Linux) or another supported backend.
+
 ## Playing
 
 Watch the trained agent play a full round:

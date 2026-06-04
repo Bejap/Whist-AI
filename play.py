@@ -16,6 +16,7 @@ Usage
 
 import sys
 import copy
+import os
 
 import numpy as np
 import torch
@@ -61,6 +62,7 @@ def load_model():
     from stable_baselines3 import PPO
     from sb3_contrib import RecurrentPPO
 
+    device = os.getenv("WHIST_DEVICE", "auto")
     ckpt_path, episode = latest_checkpoint()
     if ckpt_path is None:
         print("No checkpoint found. Train the agent first with: python train.py")
@@ -68,11 +70,13 @@ def load_model():
 
     print(f"Loading checkpoint: {ckpt_path} (episode {episode})")
     try:
-        model = RecurrentPPO.load(ckpt_path, device="cpu")
+        model = RecurrentPPO.load(ckpt_path, device=device)
         print("Model type: RecurrentPPO")
     except Exception:
-        model = PPO.load(ckpt_path, device="cpu")
+        model = PPO.load(ckpt_path, device=device)
         print("Model type: PPO")
+    print(f"Requested device: {device}")
+    print(f"Active device: {getattr(model, 'device', 'unknown')}")
     return model
 
 

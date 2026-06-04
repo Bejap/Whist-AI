@@ -20,7 +20,7 @@ from models import TransformerCardExtractor
 from whist_env import SelfPlayWrapper, WhistEnv
 
 # ---------------------------------------------------------------------------
-# Configuration – optimised for low-end hardware (~4 GB RAM, CPU only)
+# Configuration
 # ---------------------------------------------------------------------------
 CHECKPOINT_DIR = "checkpoints"
 REWARDS_CSV = "rewards.csv"
@@ -30,6 +30,7 @@ CHECKPOINT_EVERY = 10_000
 GRAPH_EVERY = 25_000
 LOG_EVERY = 500
 KEEP_CHECKPOINTS = 10
+DEVICE = os.getenv("WHIST_DEVICE", "auto")
 
 # PPO hyper-parameters (small footprint)
 # learning_rate is set as a schedule below; ent_coef is decayed manually
@@ -42,7 +43,7 @@ PPO_KWARGS = dict(
     gae_lambda=0.95,
     clip_range=0.2,
     verbose=0,
-    device="cpu",
+    device=DEVICE,
 )
 
 # Approximate timesteps per episode (13 tricks, 1 action per trick for the
@@ -354,7 +355,7 @@ def train():
     if ckpt_path is not None:
         print(f"► Attempting resume from checkpoint: {ckpt_path} (episode {start_episode})")
         try:
-            model = RecurrentPPO.load(ckpt_path, env=env, device="cpu")
+            model = RecurrentPPO.load(ckpt_path, env=env, device=DEVICE)
             # Apply updated schedule to resumed model
             model.learning_rate = LR_SCHEDULE
             model.ent_coef = ENT_COEF_START  # will be decayed by EpisodeTracker
@@ -387,6 +388,9 @@ def train():
             policy_kwargs=POLICY_KWARGS,
             **PPO_KWARGS,
         )
+
+    print(f"► Requested device: {DEVICE}")
+    print(f"► Active device: {getattr(model, 'device', 'unknown')}")
 
     # Wire self-play policy with league pool
     pool = get_checkpoint_pool()
