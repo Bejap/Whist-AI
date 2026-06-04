@@ -78,7 +78,8 @@ WHIST_DEVICE=auto python play.py --mode watch
 
 If it still runs on CPU, your PyTorch install likely has no GPU backend.
 NVIDIA requires a CUDA-enabled PyTorch build; AMD requires a ROCm-enabled
-PyTorch build (Linux) or another supported backend.
+PyTorch build (Linux) or another supported backend. On Windows/macOS, AMD GPU
+support in PyTorch is limited and CPU fallback is common.
 
 ## Playing
 
