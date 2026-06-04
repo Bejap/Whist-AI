@@ -279,15 +279,11 @@ class EpisodeTracker(BaseCallback):
         self._model_ref = model_ref  # will be set after model creation
         self._t0 = time.monotonic()
         self._last_hb = self._t0
-        self._first_step = True
 
     def _on_training_start(self) -> None:
         tqdm.write("► First callback activity observed — training loop is running.")
 
     def _on_step(self) -> bool:
-        if self._first_step:
-            self._first_step = False
-
         # Heartbeat: emit a liveness line on a wall-clock interval
         if HEARTBEAT_INTERVAL_SECS > 0:
             now = time.monotonic()
