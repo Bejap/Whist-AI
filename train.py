@@ -9,14 +9,15 @@ import shutil
 import sys
 
 import numpy as np
+import torch
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from sb3_contrib import RecurrentPPO
+from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback
+from stable_baselines3.common.vec_env import SubprocVecEnv
 from tqdm import tqdm
 
-from models import TransformerCardExtractor
 from whist_env import SelfPlayWrapper, WhistEnv
 
 # ---------------------------------------------------------------------------
@@ -32,12 +33,15 @@ LOG_EVERY = 500
 KEEP_CHECKPOINTS = 10
 DEVICE = os.getenv("WHIST_DEVICE", "auto")
 
-# PPO hyper-parameters (small footprint)
+NUM_ENVS = 16  # parallel environments for GPU utilisation
+
+# PPO hyper-parameters – tuned for RTX 3090 / GPU throughput
+# n_steps per env; total rollout = NUM_ENVS × n_steps = 4096
 # learning_rate is set as a schedule below; ent_coef is decayed manually
 # in the EpisodeTracker callback.
 PPO_KWARGS = dict(
-    n_steps=512,          # rollout buffer length per update
-    batch_size=64,
+    n_steps=256,
+    batch_size=512,
     n_epochs=4,
     gamma=0.99,
     gae_lambda=0.95,
@@ -56,16 +60,8 @@ LEAGUE_LATEST_PROB = 0.70   # probability of using the latest policy
 OPPONENT_EPSILON_START = 0.20
 OPPONENT_EPSILON_END = 0.03
 
-POLICY_KWARGS = dict(
-    features_extractor_class=TransformerCardExtractor,
-    features_extractor_kwargs=dict(
-        card_embed_dim=64,
-        nhead=4,
-        num_layers=2,
-        features_dim=256,
-        dropout=0.1,
-    ),
-)
+# Larger MLP to utilise GPU compute
+POLICY_KWARGS = dict(net_arch=[256, 256, 128])
 
 # Entropy coefficient decay parameters (decayed manually in EpisodeTracker)
 ENT_COEF_START = 0.01
@@ -205,17 +201,15 @@ def save_reward_graph():
 
 
 def sample_action(model, obs, mask):
-    """Sample an action from the model with action masking."""
-    # RecurrentPPO does not expose a masked-action sampling API directly, so
-    # we sample with predict() and enforce legality against the env mask.
-    action, _ = model.predict(obs, deterministic=False)
-    action = int(action)
-    if mask[action] > 0:
-        return action
-    valid = np.where(mask > 0)[0]
-    if len(valid) == 0:
-        raise RuntimeError("No valid actions available for opponent policy.")
-    return int(np.random.choice(valid))
+    """Sample a masked action from the model using logits-based sampling."""
+    obs_t = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0).to(model.device)
+    with torch.no_grad():
+        logits = model.policy.get_distribution(obs_t).distribution.logits
+    logits = logits.squeeze(0).cpu().numpy()
+    logits[mask == 0] = -1e8
+    probs = np.exp(logits - logits.max())
+    probs = probs / probs.sum()
+    return int(np.random.choice(len(probs), p=probs))
 
 
 def make_policy_fn(model):
@@ -240,7 +234,7 @@ def make_league_policy_fn(model, pool_paths):
         if path not in _cache:
             try:
                 # Load policy parameters only (no env needed for inference)
-                _cache[path] = RecurrentPPO.load(path, device=DEVICE)
+                _cache[path] = PPO.load(path, device=DEVICE)
             except Exception as exc:
                 print(f"  ⚠️ Skipping incompatible league checkpoint {path}: {exc}")
                 _cache[path] = None
@@ -308,9 +302,10 @@ class EpisodeTracker(BaseCallback):
                     opp_epsilon = OPPONENT_EPSILON_END + (
                         OPPONENT_EPSILON_START - OPPONENT_EPSILON_END
                     ) * (1.0 - progress)
-                    env = self.model.get_env().envs[0]
-                    if hasattr(env, "set_epsilon"):
-                        env.set_epsilon(float(opp_epsilon))
+                    try:
+                        self.model.get_env().env_method("set_epsilon", float(opp_epsilon))
+                    except Exception as exc:
+                        tqdm.write(f"  ⚠️ set_epsilon failed: {exc}")
 
                 # Checkpoint
                 if self.episode % CHECKPOINT_EVERY == 0:
@@ -321,11 +316,12 @@ class EpisodeTracker(BaseCallback):
 
                     # Refresh self-play policy with league pool
                     pool = get_checkpoint_pool()
-                    env = self.model.get_env().envs[0]
-                    if hasattr(env, "set_policy"):
-                        env.set_policy(
-                            make_league_policy_fn(self.model, pool)
+                    try:
+                        self.model.get_env().env_method(
+                            "set_policy", make_league_policy_fn(self.model, pool)
                         )
+                    except Exception as exc:
+                        tqdm.write(f"  ⚠️ set_policy failed: {exc}")
 
                 # Reward graph
                 if self.episode % GRAPH_EVERY == 0:
@@ -350,27 +346,29 @@ def train():
     # Resume from checkpoint if available
     ckpt_path, start_episode = latest_checkpoint()
 
-    env = SelfPlayWrapper(WhistEnv(), epsilon=OPPONENT_EPSILON_START)
+    def make_env():
+        def _init():
+            return SelfPlayWrapper(WhistEnv(), epsilon=OPPONENT_EPSILON_START)
+        return _init
+
+    env = SubprocVecEnv([make_env() for _ in range(NUM_ENVS)])
 
     if ckpt_path is not None:
         print(f"► Attempting resume from checkpoint: {ckpt_path} (episode {start_episode})")
         try:
-            model = RecurrentPPO.load(ckpt_path, env=env, device=DEVICE)
+            model = PPO.load(ckpt_path, env=env, device=DEVICE)
             # Apply updated schedule to resumed model
             model.learning_rate = LR_SCHEDULE
             model.ent_coef = ENT_COEF_START  # will be decayed by EpisodeTracker
             model._setup_lr_schedule()
-            print("  ✓ Recurrent checkpoint loaded")
+            print("  ✓ PPO checkpoint loaded")
         except Exception as exc:
-            print(f"  ⚠️ Could not load checkpoint with new architecture: {exc}")
-            print(
-                "  ↳ Checkpoint is likely from legacy PPO/MlpPolicy; "
-                "starting a fresh RecurrentPPO run."
-            )
+            print(f"  ⚠️ Could not load checkpoint: {exc}")
+            print("  ↳ Starting a fresh PPO run.")
             ckpt_path = None
             start_episode = 0
-            model = RecurrentPPO(
-                "MlpLstmPolicy",
+            model = PPO(
+                "MlpPolicy",
                 env,
                 learning_rate=LR_SCHEDULE,
                 ent_coef=ENT_COEF_START,
@@ -380,8 +378,8 @@ def train():
     else:
         print("► Starting fresh training (episode 0)")
         start_episode = 0
-        model = RecurrentPPO(
-            "MlpLstmPolicy",
+        model = PPO(
+            "MlpPolicy",
             env,
             learning_rate=LR_SCHEDULE,
             ent_coef=ENT_COEF_START,
@@ -391,17 +389,20 @@ def train():
 
     print(f"► Requested device: {DEVICE}")
     print(f"► Active device: {getattr(model, 'device', 'unknown')}")
+    print(f"► Parallel envs: {NUM_ENVS} (total rollout: {NUM_ENVS * PPO_KWARGS['n_steps']} steps)")
 
     # Wire self-play policy with league pool
     pool = get_checkpoint_pool()
-    if pool:
-        env.set_policy(make_league_policy_fn(model, pool))
-    else:
-        env.set_policy(make_policy_fn(model))
+    policy_fn = make_league_policy_fn(model, pool) if pool else make_policy_fn(model)
+    try:
+        env.env_method("set_policy", policy_fn)
+    except Exception as exc:
+        print(f"  ⚠️ Initial set_policy failed: {exc}")
 
     remaining = TOTAL_EPISODES - start_episode
     if remaining <= 0:
         print("Training already complete.")
+        env.close()
         return
 
     pbar = tqdm(total=remaining, desc="Training", unit="ep", file=sys.stdout)
@@ -416,6 +417,7 @@ def train():
     )
 
     pbar.close()
+    env.close()
 
     # Final save
     save_checkpoint(model, tracker.episode)
