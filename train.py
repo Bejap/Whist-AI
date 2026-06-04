@@ -36,7 +36,7 @@ DEVICE = os.getenv("WHIST_DEVICE", "auto")
 
 # Heartbeat: print a liveness message every this many seconds even if no
 # episodes have finished yet.  Set to 0 to disable.
-HEARTBEAT_INTERVAL_SECS = 30
+HEARTBEAT_INTERVAL_SECS = 10
 
 NUM_ENVS = 16  # parallel environments for GPU utilisation
 
