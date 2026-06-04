@@ -18,6 +18,12 @@ NUM_PLAYERS = 4
 CARDS_PER_PLAYER = 13
 NUM_TRICKS = 13
 
+# Reward values
+TRICK_WIN_REWARD = 2.0
+TRICK_LOSS_REWARD = -2.0
+TERMINAL_WIN_REWARD = 2.0
+TERMINAL_LOSS_REWARD = -2.0
+
 # Observation layout sizes
 OBS_HAND = NUM_CARDS
 OBS_PLAYED_BY_PLAYER = NUM_PLAYERS * NUM_CARDS
@@ -101,6 +107,8 @@ class WhistEnv(gym.Env):
         self.team_tricks = [0, 0]
         self.tricks_played = 0
         self.done = False
+        self.last_trick_winning_team = None
+        self.last_trick_capture_bonus = 0.0
 
     # ------------------------------------------------------------------
     # Gymnasium API
@@ -126,6 +134,8 @@ class WhistEnv(gym.Env):
         self.team_tricks = [0, 0]
         self.tricks_played = 0
         self.done = False
+        self.last_trick_winning_team = None
+        self.last_trick_capture_bonus = 0.0
 
         return self._get_obs(), self._get_info()
 
@@ -157,6 +167,8 @@ class WhistEnv(gym.Env):
         reward = invalid_penalty
         terminated = False
         truncated = False
+        self.last_trick_winning_team = None
+        self.last_trick_capture_bonus = 0.0
 
         if len(self.trick_cards) == NUM_PLAYERS:
             # Resolve trick
@@ -168,9 +180,16 @@ class WhistEnv(gym.Env):
             # Reward for the acting player's team
             acting_team = TEAMS[player]
             if winning_team == acting_team:
-                reward += 1.0
+                reward += TRICK_WIN_REWARD
             else:
-                reward += -1.0
+                reward += TRICK_LOSS_REWARD
+
+            # Bonus for capturing high-value opponent cards
+            capture_bonus = self._capture_bonus_for_team(winning_team)
+            if winning_team == acting_team:
+                reward += capture_bonus
+            self.last_trick_winning_team = winning_team
+            self.last_trick_capture_bonus = capture_bonus
 
             # --- Reward shaping ---
             reward += self._shape_reward(player, card, winner)
@@ -180,11 +199,11 @@ class WhistEnv(gym.Env):
             self.current_player = winner
 
             if self.tricks_played == NUM_TRICKS:
-                # Round over — terminal bonus (scaled to ±3.0)
+                # Round over — terminal bonus
                 if self.team_tricks[acting_team] > self.team_tricks[1 - acting_team]:
-                    reward += 3.0
+                    reward += TERMINAL_WIN_REWARD
                 else:
-                    reward -= 3.0
+                    reward += TERMINAL_LOSS_REWARD
                 terminated = True
                 self.done = True
         else:
@@ -293,7 +312,24 @@ class WhistEnv(gym.Env):
             "tricks_played": self.tricks_played,
             "trump_void": self.trump_void.astype(int).tolist(),
             "action_mask": self.action_mask(),
+            "last_trick_winning_team": self.last_trick_winning_team,
+            "last_trick_capture_bonus": self.last_trick_capture_bonus,
         }
+
+    def _capture_bonus_for_team(self, team: int) -> float:
+        """Bonus for capturing high-value opponent cards in a won trick."""
+        bonus = 0.0
+        for player, card in self.trick_cards:
+            if TEAMS[player] == team:
+                continue
+            rank = card % 13
+            if rank == 12:      # Ace
+                bonus += 0.3
+            elif rank == 11:    # King
+                bonus += 0.3
+            elif rank == 10:    # Queen
+                bonus += 0.2
+        return bonus
 
     def _shape_reward(self, player: int, card: int, winner: int) -> float:
         """Compute bonus / penalty shaping for the trick just resolved.
@@ -509,12 +545,14 @@ class SelfPlayWrapper(gym.Wrapper):
             obs, _r, terminated, truncated, info = self.env.step(other_action)
 
             # If a trick resolved during an opponent turn, credit the
-            # learning player with +1 (team won) or -1 (team lost).
+            # learning player with +2 (team won) or -2 (team lost).
             if self.env.team_tricks[0] != tricks_before_step[0] or self.env.team_tricks[1] != tricks_before_step[1]:
                 if self.env.team_tricks[team] > tricks_before_step[team]:
-                    reward += 1.0
+                    reward += TRICK_WIN_REWARD
+                    if info.get("last_trick_winning_team") == team:
+                        reward += float(info.get("last_trick_capture_bonus", 0.0))
                 else:
-                    reward -= 1.0
+                    reward += TRICK_LOSS_REWARD
 
             if terminated or truncated:
                 obs = self.env._get_obs(player_id=self._learning_player)
