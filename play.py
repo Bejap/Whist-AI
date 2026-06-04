@@ -107,7 +107,7 @@ def policy_priors_and_value(model, obs, mask):
     priors: np.ndarray shape (NUM_CARDS,), masked and normalised action probs.
     value: scalar value-head estimate for the same observation.
     """
-    obs_t = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0)
+    obs_t = torch.as_tensor(obs, dtype=torch.float32, device=model.device).unsqueeze(0)
     priors = None
 
     try:

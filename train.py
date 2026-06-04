@@ -240,7 +240,7 @@ def make_league_policy_fn(model, pool_paths):
         if path not in _cache:
             try:
                 # Load policy parameters only (no env needed for inference)
-                _cache[path] = RecurrentPPO.load(path, device="cpu")
+                _cache[path] = RecurrentPPO.load(path, device=DEVICE)
             except Exception as exc:
                 print(f"  ⚠️ Skipping incompatible league checkpoint {path}: {exc}")
                 _cache[path] = None
