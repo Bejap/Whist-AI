@@ -32,7 +32,7 @@ CHECKPOINT_EVERY = 10_000
 GRAPH_EVERY = 25_000
 LOG_EVERY = 500
 KEEP_CHECKPOINTS = 10
-DEVICE = os.getenv("WHIST_DEVICE", "auto")
+DEVICE = os.getenv("WHIST_DEVICE", "cpu")
 
 # Heartbeat: print a liveness message every this many seconds even if no
 # episodes have finished yet.  Set to 0 to disable.
@@ -46,7 +46,7 @@ NUM_ENVS = 16  # parallel environments for GPU utilisation
 # in the EpisodeTracker callback.
 PPO_KWARGS = dict(
     n_steps=256,
-    batch_size=512,
+    batch_size=256,
     n_epochs=4,
     gamma=0.99,
     gae_lambda=0.95,
@@ -217,50 +217,44 @@ def sample_action(model, obs, mask):
     return int(np.random.choice(len(probs), p=probs))
 
 
-def make_policy_fn(model):
-    """Create a policy function for self-play opponents."""
-    def _policy(obs, mask):
-        return sample_action(model, obs, mask)
-    return _policy
+class _CheckpointPolicy:
+    """Picklable self-play policy backed entirely by checkpoint files.
 
-
-def make_league_policy_fn(model, pool_paths):
-    """Create a league-based policy function.
-
-    - 70% chance: use the latest (live) model
-    - 30% chance: use a randomly chosen older checkpoint from the pool
-
-    Older checkpoints are loaded lazily and cached to avoid repeated I/O.
+    Closures that close over a live PPO model cannot be pickled and therefore
+    cannot be sent to SubprocVecEnv workers via env_method().  This class
+    stores only checkpoint paths (plain strings) so it pickles cleanly.
+    Checkpoint models are loaded lazily and cached per worker process.
     """
-    # Cache for loaded opponent policies (path -> model)
-    _cache = {}
 
-    def _load_opponent(path):
-        if path not in _cache:
+    def __init__(self, pool_paths, device, latest_prob=LEAGUE_LATEST_PROB):
+        self.pool_paths = pool_paths          # list of checkpoint path strings
+        self.device = device
+        self.latest_prob = latest_prob
+        self._cache: dict = {}               # path -> PPO (per-process cache)
+
+    def _load(self, path):
+        if path not in self._cache:
             try:
-                # Load policy parameters only (no env needed for inference)
-                _cache[path] = PPO.load(path, device=DEVICE)
+                self._cache[path] = PPO.load(path, device=self.device)
             except Exception as exc:
                 print(f"  ⚠️ Skipping incompatible league checkpoint {path}: {exc}")
-                _cache[path] = None
-        return _cache[path]
+                self._cache[path] = None
+        return self._cache[path]
 
-    def _policy(obs, mask):
-        # League selection
-        if len(pool_paths) <= 1:
-            return sample_action(model, obs, mask)
-        use_latest = random.random() < LEAGUE_LATEST_PROB
-        if use_latest:
-            return sample_action(model, obs, mask)
+    def __call__(self, obs, mask):
+        if not self.pool_paths:
+            # No checkpoints yet — fall back to a uniform-random valid action.
+            valid = np.where(mask > 0)[0]
+            return int(np.random.choice(valid))
+        if len(self.pool_paths) <= 1 or random.random() < self.latest_prob:
+            chosen_path = self.pool_paths[-1]
         else:
-            # Pick from older checkpoints (all except the last/latest)
-            older = pool_paths[:-1]
-            chosen_path = random.choice(older)
-            opponent_model = _load_opponent(chosen_path)
-            if opponent_model is None:
-                return sample_action(model, obs, mask)
-            return sample_action(opponent_model, obs, mask)
-    return _policy
+            chosen_path = random.choice(self.pool_paths[:-1])
+        m = self._load(chosen_path)
+        if m is None:
+            valid = np.where(mask > 0)[0]
+            return int(np.random.choice(valid))
+        return sample_action(m, obs, mask)
 
 
 # ---------------------------------------------------------------------------
@@ -342,7 +336,7 @@ class EpisodeTracker(BaseCallback):
                     pool = get_checkpoint_pool()
                     try:
                         self.model.get_env().env_method(
-                            "set_policy", make_league_policy_fn(self.model, pool)
+                            "set_policy", _CheckpointPolicy(pool, DEVICE)
                         )
                     except Exception as exc:
                         tqdm.write(f"  ⚠️ set_policy failed: {exc}")
@@ -433,13 +427,14 @@ def train():
         flush=True,
     )
 
-    # Wire self-play policy with league pool
+    # Wire self-play policy with league pool (only if checkpoints exist;
+    # workers fall back to random play when policy_fn is None).
     pool = get_checkpoint_pool()
-    policy_fn = make_league_policy_fn(model, pool) if pool else make_policy_fn(model)
-    try:
-        env.env_method("set_policy", policy_fn)
-    except Exception as exc:
-        print(f"  ⚠️ Initial set_policy failed: {exc}")
+    if pool:
+        try:
+            env.env_method("set_policy", _CheckpointPolicy(pool, DEVICE))
+        except Exception as exc:
+            print(f"  ⚠️ Initial set_policy failed: {exc}", flush=True)
 
     remaining = TOTAL_EPISODES - start_episode
     if remaining <= 0:
