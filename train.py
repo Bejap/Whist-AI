@@ -202,7 +202,7 @@ def save_reward_graph():
 
 def sample_action(model, obs, mask):
     """Sample a masked action from the model using logits-based sampling."""
-    obs_t = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0)
+    obs_t = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0).to(model.device)
     with torch.no_grad():
         logits = model.policy.get_distribution(obs_t).distribution.logits
     logits = logits.squeeze(0).cpu().numpy()
@@ -304,8 +304,8 @@ class EpisodeTracker(BaseCallback):
                     ) * (1.0 - progress)
                     try:
                         self.model.get_env().env_method("set_epsilon", float(opp_epsilon))
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        tqdm.write(f"  ⚠️ set_epsilon failed: {exc}")
 
                 # Checkpoint
                 if self.episode % CHECKPOINT_EVERY == 0:
@@ -320,8 +320,8 @@ class EpisodeTracker(BaseCallback):
                         self.model.get_env().env_method(
                             "set_policy", make_league_policy_fn(self.model, pool)
                         )
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        tqdm.write(f"  ⚠️ set_policy failed: {exc}")
 
                 # Reward graph
                 if self.episode % GRAPH_EVERY == 0:
@@ -389,15 +389,15 @@ def train():
 
     print(f"► Requested device: {DEVICE}")
     print(f"► Active device: {getattr(model, 'device', 'unknown')}")
-    print(f"► Parallel envs: {NUM_ENVS}  (total rollout: {NUM_ENVS * PPO_KWARGS['n_steps']} steps)")
+    print(f"► Parallel envs: {NUM_ENVS} (total rollout: {NUM_ENVS * PPO_KWARGS['n_steps']} steps)")
 
     # Wire self-play policy with league pool
     pool = get_checkpoint_pool()
     policy_fn = make_league_policy_fn(model, pool) if pool else make_policy_fn(model)
     try:
         env.env_method("set_policy", policy_fn)
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"  ⚠️ Initial set_policy failed: {exc}")
 
     remaining = TOTAL_EPISODES - start_episode
     if remaining <= 0:
