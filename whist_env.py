@@ -23,6 +23,9 @@ TRICK_WIN_REWARD = 2.0
 TRICK_LOSS_REWARD = -2.0
 TERMINAL_WIN_REWARD = 2.0
 TERMINAL_LOSS_REWARD = -2.0
+ACE_CAPTURE_BONUS = 0.3
+KING_CAPTURE_BONUS = 0.3
+QUEEN_CAPTURE_BONUS = 0.2
 
 # Observation layout sizes
 OBS_HAND = NUM_CARDS
@@ -324,11 +327,11 @@ class WhistEnv(gym.Env):
                 continue
             rank = card % 13
             if rank == 12:      # Ace
-                bonus += 0.3
+                bonus += ACE_CAPTURE_BONUS
             elif rank == 11:    # King
-                bonus += 0.3
+                bonus += KING_CAPTURE_BONUS
             elif rank == 10:    # Queen
-                bonus += 0.2
+                bonus += QUEEN_CAPTURE_BONUS
         return bonus
 
     def _shape_reward(self, player: int, card: int, winner: int) -> float:
