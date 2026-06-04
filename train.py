@@ -7,6 +7,7 @@ import random
 import re
 import shutil
 import sys
+import time
 
 import numpy as np
 import torch
@@ -32,6 +33,10 @@ GRAPH_EVERY = 25_000
 LOG_EVERY = 500
 KEEP_CHECKPOINTS = 10
 DEVICE = os.getenv("WHIST_DEVICE", "auto")
+
+# Heartbeat: print a liveness message every this many seconds even if no
+# episodes have finished yet.  Set to 0 to disable.
+HEARTBEAT_INTERVAL_SECS = 30
 
 NUM_ENVS = 16  # parallel environments for GPU utilisation
 
@@ -272,8 +277,31 @@ class EpisodeTracker(BaseCallback):
         self.reward_buffer = []
         self.pbar = pbar
         self._model_ref = model_ref  # will be set after model creation
+        self._t0 = time.monotonic()
+        self._last_hb = self._t0
+        self._first_step = True
+
+    def _on_training_start(self) -> None:
+        tqdm.write("► First callback activity observed — training loop is running.")
 
     def _on_step(self) -> bool:
+        if self._first_step:
+            self._first_step = False
+
+        # Heartbeat: emit a liveness line on a wall-clock interval
+        if HEARTBEAT_INTERVAL_SECS > 0:
+            now = time.monotonic()
+            if now - self._last_hb >= HEARTBEAT_INTERVAL_SECS:
+                elapsed = now - self._t0
+                fps = self.num_timesteps / elapsed if elapsed > 0 else 0.0
+                tqdm.write(
+                    f"  ♥ heartbeat | steps={self.num_timesteps:,}"
+                    f" | episodes={self.episode:,}"
+                    f" | fps={fps:.0f}"
+                    f" | elapsed={elapsed:.0f}s"
+                )
+                self._last_hb = now
+
         # Check if any episode ended in the vectorised env
         for idx, done in enumerate(self.locals.get("dones", [])):
             if done:
@@ -410,6 +438,8 @@ def train():
 
     # Estimate total timesteps needed (with margin)
     total_timesteps = remaining * STEPS_PER_EPISODE * 2
+    print(f"► Total timesteps planned: {total_timesteps:,}")
+    print(f"► Starting model.learn() — heartbeat every {HEARTBEAT_INTERVAL_SECS}s …")
     model.learn(
         total_timesteps=total_timesteps,
         callback=tracker,
