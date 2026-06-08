@@ -18,6 +18,19 @@ NUM_PLAYERS = 4
 CARDS_PER_PLAYER = 13
 NUM_TRICKS = 13
 
+# Reward constants
+INVALID_ACTION_PENALTY = 0.5
+REWARD_TRICK_WIN = 1.0
+TRICK_LOSS_PENALTY = 1.0
+REWARD_ROUND_WIN = 3.0
+ROUND_LOSS_PENALTY = 3.0
+BONUS_WIN_WITH_TRUMP = 0.4
+BONUS_SMART_TRUMP = 0.5
+BONUS_WIN_WITH_LEAD_SUIT = 0.2
+WASTED_TRUMP_PENALTY = 0.1
+MISSED_MUST_TRUMP_PENALTY = 0.4
+WASTED_HIGH_CARD_PENALTY = 0.3
+
 # Observation layout sizes
 OBS_HAND = NUM_CARDS
 OBS_PLAYED_BY_PLAYER = NUM_PLAYERS * NUM_CARDS
@@ -137,7 +150,7 @@ class WhistEnv(gym.Env):
         valid = self.action_mask()
         invalid_penalty = 0.0
         if valid[action] == 0:
-            invalid_penalty = -0.5
+            invalid_penalty = -INVALID_ACTION_PENALTY
             action = int(np.argmax(valid))
 
         card = action
@@ -168,9 +181,9 @@ class WhistEnv(gym.Env):
             # Reward for the acting player's team
             acting_team = TEAMS[player]
             if winning_team == acting_team:
-                reward += 1.0
+                reward += REWARD_TRICK_WIN
             else:
-                reward += -1.0
+                reward -= TRICK_LOSS_PENALTY
 
             # --- Reward shaping ---
             reward += self._shape_reward(player, card, winner)
@@ -180,11 +193,11 @@ class WhistEnv(gym.Env):
             self.current_player = winner
 
             if self.tricks_played == NUM_TRICKS:
-                # Round over — terminal bonus (scaled to ±3.0)
+                # Round over — terminal bonus (±3.0)
                 if self.team_tricks[acting_team] > self.team_tricks[1 - acting_team]:
-                    reward += 3.0
+                    reward += REWARD_ROUND_WIN
                 else:
-                    reward -= 3.0
+                    reward -= ROUND_LOSS_PENALTY
                 terminated = True
                 self.done = True
         else:
@@ -319,7 +332,7 @@ class WhistEnv(gym.Env):
         if winning_team == acting_team:
             if is_trump and winner == player:
                 # Efficient trump bonus: won trick with trump (+0.4)
-                bonus += 0.4
+                bonus += BONUS_WIN_WITH_TRUMP
 
                 # Smart trump bonus: played the lowest winning trump (+0.5)
                 trump_cards_in_hand = [
@@ -361,16 +374,16 @@ class WhistEnv(gym.Env):
                         break
 
                 if lowest_winning_trump is not None and card == lowest_winning_trump:
-                    bonus += 0.5
+                    bonus += BONUS_SMART_TRUMP
 
             elif card_suit == lead_suit and winner == player:
                 # Won with highest card of lead suit
-                bonus += 0.2
+                bonus += BONUS_WIN_WITH_LEAD_SUIT
         else:
             # Team lost the trick
             if is_trump:
                 # Wasted a trump on a trick the team lost
-                bonus -= 0.1
+                bonus -= WASTED_TRUMP_PENALTY
 
             # Must-trump penalty: had no lead suit, had trump, didn't play trump
             if not is_trump and has_trump:
@@ -383,11 +396,11 @@ class WhistEnv(gym.Env):
                 # Player couldn't follow suit (otherwise they would have been
                 # forced to), so check if they had trump available
                 if not player_has_lead and player_has_trump:
-                    bonus -= 0.4
+                    bonus -= MISSED_MUST_TRUMP_PENALTY
 
         # Penalise wasting trump when teammate already winning
         if is_trump and winning_team == acting_team and winner != player:
-            bonus -= 0.1
+            bonus -= WASTED_TRUMP_PENALTY
 
         # Wasted high card penalty: teammate was already winning and player
         # threw a high card (rank >= Jack, i.e. rank index >= 9)
@@ -395,7 +408,7 @@ class WhistEnv(gym.Env):
                 and TEAMS[winner_before] == acting_team
                 and winner_before != player
                 and card_rank >= 9):
-            bonus -= 0.3
+            bonus -= WASTED_HIGH_CARD_PENALTY
 
         return bonus
 
@@ -512,9 +525,9 @@ class SelfPlayWrapper(gym.Wrapper):
             # learning player with +1 (team won) or -1 (team lost).
             if self.env.team_tricks[0] != tricks_before_step[0] or self.env.team_tricks[1] != tricks_before_step[1]:
                 if self.env.team_tricks[team] > tricks_before_step[team]:
-                    reward += 1.0
+                    reward += REWARD_TRICK_WIN
                 else:
-                    reward -= 1.0
+                    reward -= TRICK_LOSS_PENALTY
 
             if terminated or truncated:
                 obs = self.env._get_obs(player_id=self._learning_player)

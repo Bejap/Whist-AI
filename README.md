@@ -101,7 +101,7 @@ The Whist environment (`whist_env.py`) follows the Gymnasium API.
 
 **Reward shaping:**
 - +1 / −1 per trick won / lost
-- +0.3 bonus for winning a trick with a trump card
+- +0.4 bonus for winning a trick with a trump card
 - +0.2 bonus for winning with the highest lead-suit card
 - −0.1 penalty for wasting a trump on a trick already won by your team
 - −0.5 penalty for selecting an invalid action
