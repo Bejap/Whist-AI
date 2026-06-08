@@ -64,6 +64,20 @@ Watch the trained agent play a full round:
 python play.py
 ```
 
+### Graphical interface (GUI)
+
+Play interactively against three AI opponents in a windowed card table:
+
+```bash
+python gui.py
+```
+
+- You are **P1** (bottom, cards face-up and clickable with the mouse).
+- AI players are **P2**, **P3**, and **P4**.
+- **Team 0**: You (P1) & P3 — **Team 1**: P2 & P4.
+- If no checkpoint is found the AI plays randomly.
+- The window is resizable; target resolution is 1024 × 768.
+
 For future GPU-focused upgrades (RecurrentPPO, Transformer extractor, MCTS),
 see `Improvements.md`.
 
