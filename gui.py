@@ -9,6 +9,7 @@ Run with:  python gui.py
 import os
 import sys
 import time
+from typing import Optional
 
 import numpy as np
 import pygame
@@ -340,7 +341,7 @@ class WhistGUI:
             if self._play_again_rect().collidepoint(pos):
                 self._new_round()
 
-    def _human_card_at(self, pos) -> int | None:
+    def _human_card_at(self, pos) -> Optional[int]:
         """Return the card index under *pos* in the human's hand, or None."""
         hand = self.env.hands[0]
         if not hand:
@@ -539,9 +540,6 @@ def main() -> None:
         for ev in pygame.event.get():
             if ev.type == pygame.QUIT:
                 running = False
-            elif ev.type == pygame.VIDEORESIZE:
-                screen = pygame.display.set_mode(ev.size, pygame.RESIZABLE)
-                game.screen = screen
             else:
                 game.handle_event(ev)
 
