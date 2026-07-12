@@ -1,5 +1,8 @@
 """Training script for Whist RL agent using PPO with self-play."""
 
+
+print("A: starting module load", flush=True)
+
 import csv
 import glob
 import os
@@ -8,46 +11,79 @@ import re
 import shutil
 import sys
 import time
+import subprocess
+
+print("B: stdlib imports done", flush=True)
 
 import numpy as np
+print("C: numpy imported", flush=True)
+
 import torch
+print("D: torch imported", flush=True)
+
 import matplotlib
+print("E: matplotlib imported", flush=True)
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+print("F: pyplot imported", flush=True)
+
 from stable_baselines3 import PPO
+print("G: stable_baselines3 imported", flush=True)
+
 from stable_baselines3.common.callbacks import BaseCallback
-from stable_baselines3.common.vec_env import SubprocVecEnv
+print("H: callbacks imported", flush=True)
+
+from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
+print("I: SubprocVecEnv imported", flush=True)
+
 from tqdm import tqdm
+print("J: tqdm imported", flush=True)
 
 from whist_env import SelfPlayWrapper, WhistEnv
+print("K: whist_env imported", flush=True)
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 CHECKPOINT_DIR = "checkpoints"
 REWARDS_CSV = "rewards.csv"
+WINRATE_CSV = "winrate.csv"
 GRAPH_DIR = "graphs"
-TOTAL_EPISODES = 100_000
+TOTAL_EPISODES = 1_000_000
 CHECKPOINT_EVERY = 10_000
 GRAPH_EVERY = 25_000
 LOG_EVERY = 500
+EVAL_EVERY = 10_000          # win-rate eval vs frozen baseline
+EVAL_EPISODES = 200          # episodes per eval batch
 KEEP_CHECKPOINTS = 10
 DEVICE = os.getenv("WHIST_DEVICE", "auto")
+GPU_UTILIZATION_CAP_PERCENT = int(os.getenv("WHIST_GPU_CAP_PERCENT", "60"))
+GPU_UTILIZATION_CHECK_INTERVAL_SECS = float(
+    os.getenv("WHIST_GPU_CAP_CHECK_INTERVAL_SECS", "5")
+)
+GPU_UTILIZATION_POLL_SLEEP_SECS = float(
+    os.getenv("WHIST_GPU_CAP_SLEEP_SECS", "0.15")
+)
 
 # Heartbeat: print a liveness message every this many seconds even if no
 # episodes have finished yet.  Set to 0 to disable.
 HEARTBEAT_INTERVAL_SECS = 10
 
-NUM_ENVS = 16  # parallel environments for GPU utilisation
+# ---------------------------------------------------------------------------
+# Optimization #1 & #2: bigger rollouts + more parallel envs
+# ---------------------------------------------------------------------------
+NUM_ENVS = 1 if os.name == "nt" else 4
+# Windows process-spawning duplicates the torch import across workers and can
+# exhaust the paging file; keep Windows in-process by default.
+VEC_ENV_CLASS = DummyVecEnv if os.name == "nt" else SubprocVecEnv
 
 # PPO hyper-parameters – tuned for RTX 3090 / GPU throughput
-# n_steps per env; total rollout = NUM_ENVS × n_steps = 4096
-# learning_rate is set as a schedule below; ent_coef is decayed manually
-# in the EpisodeTracker callback.
+# n_steps per env; total rollout = NUM_ENVS x n_steps = 4 x 2048 = 8192
 PPO_KWARGS = dict(
-    n_steps=256,
-    batch_size=512,
-    n_epochs=4,
+    n_steps=2048,
+    batch_size=1024,
+    n_epochs=6,
     gamma=0.99,
     gae_lambda=0.95,
     clip_range=0.2,
@@ -59,9 +95,12 @@ PPO_KWARGS = dict(
 # learning player in the self-play wrapper).
 STEPS_PER_EPISODE = 13
 
-# League self-play settings
-LEAGUE_POOL_SIZE = 5        # number of checkpoints to keep in the opponent pool
-LEAGUE_LATEST_PROB = 0.70   # probability of using the latest policy
+# ---------------------------------------------------------------------------
+# Optimization #4 & #5: wider league pool + scheduled latest-policy prob
+# ---------------------------------------------------------------------------
+LEAGUE_POOL_SIZE = 15        # number of checkpoints to keep in the opponent pool
+LEAGUE_LATEST_PROB_START = 0.50   # more varied/weaker opponents early on
+LEAGUE_LATEST_PROB_END = 0.80     # mostly self-play once policy matures
 OPPONENT_EPSILON_START = 0.20
 OPPONENT_EPSILON_END = 0.03
 
@@ -72,6 +111,63 @@ POLICY_KWARGS = dict(net_arch=[256, 256, 128])
 ENT_COEF_START = 0.01
 ENT_COEF_END = 0.001
 
+# Keep more checkpoints around since the league pool now wants up to 15
+KEEP_CHECKPOINTS = max(KEEP_CHECKPOINTS, LEAGUE_POOL_SIZE)
+
+# Frozen baseline checkpoint (for win-rate evaluation). Set once the first
+# checkpoint exists; never updated again so win-rate is comparable over time.
+BASELINE_CHECKPOINT = os.path.join(CHECKPOINT_DIR, "baseline.pth")
+
+
+_GPU_CAP_DISABLED = False
+
+
+def get_gpu_utilization_percent():
+    """Return the current GPU utilization percent, or None if unavailable."""
+    global _GPU_CAP_DISABLED
+    if _GPU_CAP_DISABLED or not torch.cuda.is_available():
+        return None
+
+    try:
+        output = subprocess.check_output(
+            [
+                "nvidia-smi",
+                "--query-gpu=utilization.gpu",
+                "--format=csv,noheader,nounits",
+            ],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        _GPU_CAP_DISABLED = True
+        return None
+
+    first_line = output.strip().splitlines()[:1]
+    if not first_line:
+        return None
+
+    try:
+        return float(first_line[0])
+    except ValueError:
+        return None
+
+
+def maybe_throttle_gpu():
+    """Briefly yield training when the GPU is above the requested cap."""
+    if GPU_UTILIZATION_CAP_PERCENT <= 0:
+        return
+
+    util = get_gpu_utilization_percent()
+    if util is None:
+        return
+
+    if util <= GPU_UTILIZATION_CAP_PERCENT:
+        return
+
+    over = util - GPU_UTILIZATION_CAP_PERCENT
+    sleep_secs = GPU_UTILIZATION_POLL_SLEEP_SECS * max(1.0, over / 5.0)
+    time.sleep(min(sleep_secs, 1.0))
+
 
 # ---------------------------------------------------------------------------
 # Schedules
@@ -80,11 +176,17 @@ ENT_COEF_END = 0.001
 def linear_schedule(start: float, end: float):
     """Return a callable that linearly decays from start to end.
 
-    The callable receives `progress_remaining` (1.0 → 0.0) from SB3.
+    The callable receives `progress_remaining` (1.0 -> 0.0) from SB3.
     """
     def _schedule(progress_remaining: float) -> float:
         return end + (start - end) * progress_remaining
     return _schedule
+
+
+def linear_value(start: float, end: float, progress: float) -> float:
+    """Linearly interpolate from start to end as progress goes 0 -> 1."""
+    progress = min(max(progress, 0.0), 1.0)
+    return start + (end - start) * progress
 
 
 LR_SCHEDULE = linear_schedule(3e-4, 5e-5)
@@ -103,12 +205,15 @@ def handle_fresh_start():
     # Delete checkpoints directory
     if os.path.isdir(CHECKPOINT_DIR):
         shutil.rmtree(CHECKPOINT_DIR)
-    # Delete rewards.csv
+    # Delete rewards.csv / winrate.csv
     if os.path.exists(REWARDS_CSV):
         os.remove(REWARDS_CSV)
+    if os.path.exists(WINRATE_CSV):
+        os.remove(WINRATE_CSV)
     # Delete the flag itself
     os.remove(flag)
     print("  ✓ Clean slate ready")
+
 
 def latest_checkpoint():
     """Return (path, episode) of the most recent checkpoint, or (None, 0)."""
@@ -155,6 +260,20 @@ def save_checkpoint(model, episode):
         os.remove(files.pop(0))
 
 
+def ensure_baseline_checkpoint(model, episode):
+    """Save a one-time frozen baseline checkpoint for win-rate evaluation.
+
+    This is saved once (the earliest available checkpoint) and never
+    overwritten, so win-rate-vs-baseline is comparable across all of
+    training.
+    """
+    if os.path.exists(BASELINE_CHECKPOINT):
+        return
+    os.makedirs(CHECKPOINT_DIR, exist_ok=True)
+    model.save(BASELINE_CHECKPOINT)
+    print(f"  ★ Frozen baseline checkpoint saved at episode {episode}")
+
+
 def append_reward(episode, reward):
     """Append a row to rewards.csv."""
     write_header = not os.path.exists(REWARDS_CSV)
@@ -165,44 +284,81 @@ def append_reward(episode, reward):
         writer.writerow([episode, f"{reward:.4f}"])
 
 
-def save_reward_graph():
-    """Read rewards.csv and save a reward-over-time graph to graphs/."""
-    if not os.path.exists(REWARDS_CSV):
-        return
-    episodes, rewards = [], []
-    with open(REWARDS_CSV, newline="") as f:
-        reader = csv.reader(f)
-        next(reader, None)  # skip header
-        for row in reader:
-            if len(row) >= 2:
-                episodes.append(int(row[0]))
-                rewards.append(float(row[1]))
-    if not episodes:
-        return
+def append_winrate(episode, win_rate):
+    """Append a row to winrate.csv."""
+    write_header = not os.path.exists(WINRATE_CSV)
+    with open(WINRATE_CSV, "a", newline="") as f:
+        writer = csv.writer(f)
+        if write_header:
+            writer.writerow(["episode", "win_rate_vs_baseline"])
+        writer.writerow([episode, f"{win_rate:.4f}"])
 
+
+def save_reward_graph():
+    """Read rewards.csv and winrate.csv and save graphs to graphs/."""
     os.makedirs(GRAPH_DIR, exist_ok=True)
 
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.plot(episodes, rewards, linewidth=0.8, alpha=0.6, label="avg reward")
+    # --- Reward graph -----------------------------------------------------
+    if os.path.exists(REWARDS_CSV):
+        episodes, rewards = [], []
+        with open(REWARDS_CSV, newline="") as f:
+            reader = csv.reader(f)
+            next(reader, None)  # skip header
+            for row in reader:
+                if len(row) >= 2:
+                    episodes.append(int(row[0]))
+                    rewards.append(float(row[1]))
 
-    # Add a smoothed trend line (rolling window of 50 log entries)
-    if len(rewards) >= 50:
-        window = 50
-        smoothed = np.convolve(rewards, np.ones(window) / window, mode="valid")
-        ax.plot(
-            episodes[window - 1:], smoothed,
-            linewidth=2, color="red", label=f"smoothed ({window}-pt)",
-        )
+        if episodes:
+            fig, ax = plt.subplots(figsize=(10, 5))
+            ax.plot(episodes, rewards, linewidth=0.8, alpha=0.6, label="avg reward")
 
-    ax.set_xlabel("Episode")
-    ax.set_ylabel("Average Reward")
-    ax.set_title(f"Training Reward (up to episode {episodes[-1]})")
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    fig.tight_layout()
-    path = os.path.join(GRAPH_DIR, f"reward_ep_{episodes[-1]}.png")
-    fig.savefig(path, dpi=100)
-    plt.close(fig)
+            # Add a smoothed trend line (rolling window of 50 log entries)
+            if len(rewards) >= 50:
+                window = 50
+                smoothed = np.convolve(rewards, np.ones(window) / window, mode="valid")
+                ax.plot(
+                    episodes[window - 1:], smoothed,
+                    linewidth=2, color="red", label=f"smoothed ({window}-pt)",
+                )
+
+            ax.set_xlabel("Episode")
+            ax.set_ylabel("Average Reward")
+            ax.set_title(f"Training Reward (up to episode {episodes[-1]})")
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+            fig.tight_layout()
+            path = os.path.join(GRAPH_DIR, f"reward_ep_{episodes[-1]}.png")
+            fig.savefig(path, dpi=100)
+            plt.close(fig)
+
+    # --- Win-rate vs frozen baseline graph --------------------------------
+    if os.path.exists(WINRATE_CSV):
+        episodes, win_rates = [], []
+        with open(WINRATE_CSV, newline="") as f:
+            reader = csv.reader(f)
+            next(reader, None)
+            for row in reader:
+                if len(row) >= 2:
+                    episodes.append(int(row[0]))
+                    win_rates.append(float(row[1]))
+
+        if episodes:
+            fig, ax = plt.subplots(figsize=(10, 5))
+            ax.plot(episodes, win_rates, marker="o", linewidth=1.5,
+                    color="green", label="win rate vs frozen baseline")
+            ax.axhline(0.5, color="gray", linestyle="--", linewidth=1,
+                       label="50% (parity)")
+            ax.set_xlabel("Episode")
+            ax.set_ylabel("Win Rate")
+            ax.set_ylim(0.0, 1.0)
+            ax.set_title(f"Win Rate vs Frozen Baseline (up to episode {episodes[-1]})")
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+            fig.tight_layout()
+            path = os.path.join(GRAPH_DIR, f"winrate_ep_{episodes[-1]}.png")
+            fig.savefig(path, dpi=100)
+            plt.close(fig)
 
 
 def sample_action(model, obs, mask):
@@ -217,6 +373,16 @@ def sample_action(model, obs, mask):
     return int(np.random.choice(len(probs), p=probs))
 
 
+def greedy_action(model, obs, mask):
+    """Pick the highest-probability valid action (used for evaluation)."""
+    obs_t = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0).to(model.device)
+    with torch.no_grad():
+        logits = model.policy.get_distribution(obs_t).distribution.logits
+    logits = logits.squeeze(0).cpu().numpy()
+    logits[mask == 0] = -1e8
+    return int(np.argmax(logits))
+
+
 def make_policy_fn(model):
     """Create a policy function for self-play opponents."""
     def _policy(obs, mask):
@@ -224,11 +390,11 @@ def make_policy_fn(model):
     return _policy
 
 
-def make_league_policy_fn(model, pool_paths):
+def make_league_policy_fn(model, pool_paths, latest_prob):
     """Create a league-based policy function.
 
-    - 70% chance: use the latest (live) model
-    - 30% chance: use a randomly chosen older checkpoint from the pool
+    - `latest_prob` chance: use the latest (live) model
+    - otherwise: use a randomly chosen older checkpoint from the pool
 
     Older checkpoints are loaded lazily and cached to avoid repeated I/O.
     """
@@ -249,7 +415,7 @@ def make_league_policy_fn(model, pool_paths):
         # League selection
         if len(pool_paths) <= 1:
             return sample_action(model, obs, mask)
-        use_latest = random.random() < LEAGUE_LATEST_PROB
+        use_latest = random.random() < latest_prob
         if use_latest:
             return sample_action(model, obs, mask)
         else:
@@ -261,6 +427,57 @@ def make_league_policy_fn(model, pool_paths):
                 return sample_action(model, obs, mask)
             return sample_action(opponent_model, obs, mask)
     return _policy
+
+
+# ---------------------------------------------------------------------------
+# Optimization #3: win-rate vs frozen baseline evaluation
+# ---------------------------------------------------------------------------
+
+def evaluate_win_rate(model, n_episodes=EVAL_EPISODES):
+    """Play `n_episodes` of the learning model (greedy) vs the frozen
+    baseline checkpoint (sampled) and return the fraction of episodes the
+    learning player's team wins.
+
+    Runs in a separate single-process env so it doesn't disturb the
+    training SubprocVecEnv. Cheap relative to training (EVAL_EPISODES is
+    small and greedy/sampled inference is fast on CPU/GPU).
+    """
+    if not os.path.exists(BASELINE_CHECKPOINT):
+        return None
+
+    try:
+        baseline_model = PPO.load(BASELINE_CHECKPOINT, device=DEVICE)
+    except Exception as exc:
+        print(f"  ⚠️ Could not load baseline for eval: {exc}")
+        return None
+
+    env = WhistEnv()
+    wins = 0
+
+    for _ in range(n_episodes):
+        obs, info = env.reset()
+        learning_player = env.current_player
+        team = TEAMS_FOR_EVAL[learning_player]
+        done = False
+
+        while not done:
+            mask = env.action_mask()
+            if env.current_player == learning_player:
+                action = greedy_action(model, obs, mask)
+            else:
+                action = sample_action(baseline_model, obs, mask)
+            obs, _r, terminated, truncated, info = env.step(action)
+            done = terminated or truncated
+            obs = env._get_obs()  # refresh for the *new* current_player
+
+        if env.team_tricks[team] > env.team_tricks[1 - team]:
+            wins += 1
+
+    return wins / n_episodes
+
+
+# Local copy of the team mapping (avoid importing private module internals)
+TEAMS_FOR_EVAL = {0: 0, 1: 1, 2: 0, 3: 1}
 
 
 # ---------------------------------------------------------------------------
@@ -279,11 +496,17 @@ class EpisodeTracker(BaseCallback):
         self._model_ref = model_ref  # will be set after model creation
         self._t0 = time.monotonic()
         self._last_hb = self._t0
+        self._last_gpu_check = 0.0
 
     def _on_training_start(self) -> None:
         tqdm.write("► First callback activity observed — training loop is running.")
 
     def _on_step(self) -> bool:
+        now = time.monotonic()
+        if now - self._last_gpu_check >= GPU_UTILIZATION_CHECK_INTERVAL_SECS:
+            maybe_throttle_gpu()
+            self._last_gpu_check = now
+
         # Heartbeat: emit a liveness line on a wall-clock interval
         if HEARTBEAT_INTERVAL_SECS > 0:
             now = time.monotonic()
@@ -338,20 +561,39 @@ class EpisodeTracker(BaseCallback):
                         f"  💾 Checkpoint saved at episode {self.episode}"
                     )
 
-                    # Refresh self-play policy with league pool
+                    # One-time frozen baseline for win-rate evaluation
+                    ensure_baseline_checkpoint(self.model, self.episode)
+
+                    # Refresh self-play policy with league pool, using the
+                    # scheduled latest-policy probability.
                     pool = get_checkpoint_pool()
+                    progress = self.episode / TOTAL_EPISODES
+                    latest_prob = linear_value(
+                        LEAGUE_LATEST_PROB_START, LEAGUE_LATEST_PROB_END, progress
+                    )
                     try:
                         self.model.get_env().env_method(
-                            "set_policy", make_league_policy_fn(self.model, pool)
+                            "set_policy",
+                            make_league_policy_fn(self.model, pool, latest_prob),
                         )
                     except Exception as exc:
                         tqdm.write(f"  ⚠️ set_policy failed: {exc}")
+
+                # Win-rate evaluation vs frozen baseline
+                if self.episode % EVAL_EVERY == 0:
+                    win_rate = evaluate_win_rate(self.model)
+                    if win_rate is not None:
+                        append_winrate(self.episode, win_rate)
+                        tqdm.write(
+                            f"  🏆 Win rate vs frozen baseline at episode "
+                            f"{self.episode}: {win_rate:.1%}"
+                        )
 
                 # Reward graph
                 if self.episode % GRAPH_EVERY == 0:
                     save_reward_graph()
                     tqdm.write(
-                        f"  📈 Reward graph saved at episode {self.episode}"
+                        f"  📈 Reward/win-rate graphs saved at episode {self.episode}"
                     )
 
                 if self.episode >= TOTAL_EPISODES:
@@ -384,9 +626,12 @@ def train():
             return SelfPlayWrapper(WhistEnv(), epsilon=OPPONENT_EPSILON_START)
         return _init
 
-    print(f"► Creating SubprocVecEnv with {NUM_ENVS} workers...", flush=True)
+    print(f"► Creating {VEC_ENV_CLASS.__name__} with {NUM_ENVS} workers...", flush=True)
     env_init_t0 = time.monotonic()
-    env = SubprocVecEnv([make_env() for _ in range(NUM_ENVS)])
+    print("train() entered", flush=True)
+    print("about to create vec env", flush=True)
+    env = VEC_ENV_CLASS([make_env() for _ in range(NUM_ENVS)])
+    print("vec env created", flush=True)
     print(
         f"  ✓ SubprocVecEnv ready in {time.monotonic() - env_init_t0:.1f}s",
         flush=True,
@@ -428,6 +673,7 @@ def train():
 
     print(f"► Requested device: {DEVICE}", flush=True)
     print(f"► Active device: {getattr(model, 'device', 'unknown')}", flush=True)
+    print(f"► GPU usage cap: {GPU_UTILIZATION_CAP_PERCENT}% soft limit", flush=True)
     print(
         f"► Parallel envs: {NUM_ENVS} (total rollout: {NUM_ENVS * PPO_KWARGS['n_steps']} steps)",
         flush=True,
@@ -435,7 +681,13 @@ def train():
 
     # Wire self-play policy with league pool
     pool = get_checkpoint_pool()
-    policy_fn = make_league_policy_fn(model, pool) if pool else make_policy_fn(model)
+    progress0 = start_episode / TOTAL_EPISODES
+    latest_prob0 = linear_value(LEAGUE_LATEST_PROB_START, LEAGUE_LATEST_PROB_END, progress0)
+    policy_fn = (
+        make_league_policy_fn(model, pool, latest_prob0)
+        if pool
+        else make_policy_fn(model)
+    )
     try:
         env.env_method("set_policy", policy_fn)
     except Exception as exc:
@@ -473,4 +725,6 @@ def train():
 
 
 if __name__ == "__main__":
+    import multiprocessing
+    multiprocessing.freeze_support()
     train()

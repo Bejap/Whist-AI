@@ -61,6 +61,10 @@ becomes stronger over time.
 By default, training/inference use `WHIST_DEVICE=auto`, which lets SB3/PyTorch
 pick GPU when available and fall back to CPU otherwise.
 
+Training also applies a soft GPU utilization cap of 60% by default. When
+`nvidia-smi` reports the GPU above that threshold, the training loop briefly
+yields so the card has more headroom for other work.
+
 ```bash
 # Auto-select (default)
 python train.py
@@ -68,6 +72,10 @@ python train.py
 # Force a specific device
 WHIST_DEVICE=cuda python train.py
 WHIST_DEVICE=cpu python train.py
+
+# Adjust the soft GPU cap if needed
+WHIST_GPU_CAP_PERCENT=60 python train.py
+WHIST_GPU_CAP_PERCENT=0 python train.py
 ```
 
 You can use the same variable for gameplay:

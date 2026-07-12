@@ -27,6 +27,23 @@ ACE_CAPTURE_BONUS = 0.3
 KING_CAPTURE_BONUS = 0.3
 QUEEN_CAPTURE_BONUS = 0.2
 
+# ---------------------------------------------------------------------------
+# Optimization #6: scale down shaping bonuses/penalties relative to the
+# +/-2.0 trick-win/loss and terminal rewards. This reduces reward variance
+# so PPO's value function has an easier target, while preserving the
+# *relative* ordering of shaping signals (e.g. "smart trump" > "efficient
+# trump" > "won with lead suit").
+# ---------------------------------------------------------------------------
+SHAPING_SCALE = 0.5
+
+EFFICIENT_TRUMP_BONUS = 0.4 * SHAPING_SCALE
+SMART_TRUMP_BONUS = 0.5 * SHAPING_SCALE
+WON_LEAD_SUIT_BONUS = 0.2 * SHAPING_SCALE
+WASTED_TRUMP_PENALTY = -0.1 * SHAPING_SCALE
+MUST_TRUMP_PENALTY = -0.4 * SHAPING_SCALE
+TEAMMATE_WINNING_TRUMP_WASTE_PENALTY = -0.1 * SHAPING_SCALE
+WASTED_HIGH_CARD_PENALTY = -0.3 * SHAPING_SCALE
+
 # Observation layout sizes
 OBS_HAND = NUM_CARDS
 OBS_PLAYED_BY_PLAYER = NUM_PLAYERS * NUM_CARDS
@@ -72,7 +89,7 @@ class WhistEnv(gym.Env):
 
     Observation (length 340):
         - own hand:              52 bits (one-hot)
-        - played cards by seat: 208 bits (4 × 52)
+        - played cards by seat: 208 bits (4 x 52)
         - current trick:         52 bits (cards on the table this trick, up to 3)
         - trump suit:             5 bits (one-hot; index 0-3 = suit, index 4 = no trump)
         - team tricks:            2 floats (team0 tricks / 13, team1 tricks / 13)
@@ -338,6 +355,10 @@ class WhistEnv(gym.Env):
         """Compute bonus / penalty shaping for the trick just resolved.
 
         Must be called *before* trick_cards is cleared.
+
+        NOTE: shaping magnitudes are scaled by SHAPING_SCALE (see top of
+        file) relative to the original design, so they influence behaviour
+        without dominating the +/-2.0 trick-win/loss and terminal rewards.
         """
         bonus = 0.0
         card_suit = card // 13
@@ -357,10 +378,10 @@ class WhistEnv(gym.Env):
 
         if winning_team == acting_team:
             if is_trump and winner == player:
-                # Efficient trump bonus: won trick with trump (+0.4)
-                bonus += 0.4
+                # Efficient trump bonus: won trick with trump
+                bonus += EFFICIENT_TRUMP_BONUS
 
-                # Smart trump bonus: played the lowest winning trump (+0.5)
+                # Smart trump bonus: played the lowest winning trump
                 trump_cards_in_hand = [
                     c for c in self.hands[player]
                     if c // 13 == self.trump_suit
@@ -400,16 +421,16 @@ class WhistEnv(gym.Env):
                         break
 
                 if lowest_winning_trump is not None and card == lowest_winning_trump:
-                    bonus += 0.5
+                    bonus += SMART_TRUMP_BONUS
 
             elif card_suit == lead_suit and winner == player:
                 # Won with highest card of lead suit
-                bonus += 0.2
+                bonus += WON_LEAD_SUIT_BONUS
         else:
             # Team lost the trick
             if is_trump:
                 # Wasted a trump on a trick the team lost
-                bonus -= 0.1
+                bonus += WASTED_TRUMP_PENALTY
 
             # Must-trump penalty: had no lead suit, had trump, didn't play trump
             if not is_trump and has_trump:
@@ -422,11 +443,11 @@ class WhistEnv(gym.Env):
                 # Player couldn't follow suit (otherwise they would have been
                 # forced to), so check if they had trump available
                 if not player_has_lead and player_has_trump:
-                    bonus -= 0.4
+                    bonus += MUST_TRUMP_PENALTY
 
         # Penalise wasting trump when teammate already winning
         if is_trump and winning_team == acting_team and winner != player:
-            bonus -= 0.1
+            bonus += TEAMMATE_WINNING_TRUMP_WASTE_PENALTY
 
         # Wasted high card penalty: teammate was already winning and player
         # threw a high card (rank >= Jack, i.e. rank index >= 9)
@@ -434,7 +455,7 @@ class WhistEnv(gym.Env):
                 and TEAMS[winner_before] == acting_team
                 and winner_before != player
                 and card_rank >= 9):
-            bonus -= 0.3
+            bonus += WASTED_HIGH_CARD_PENALTY
 
         return bonus
 

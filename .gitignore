@@ -10,14 +10,19 @@ __pycache__/
 ## Virtual environment
 venv/
 .venv/
+.venv_cuda/
 env/
 ENV/
+.python-version
 
 ## Training outputs
 checkpoints/
 graphs/
 rewards.csv
+winrate.csv
 fresh_start.flag
+*.png
+*.tar.gz
 
 ## PyTorch
 *.pth
@@ -41,3 +46,15 @@ desktop.ini
 ## Logs
 *.log
 logs/
+*.out
+*.err
+
+## Python packaging / build artifacts
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
