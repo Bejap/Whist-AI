@@ -17,11 +17,17 @@ ENV/
 
 ## Training outputs
 checkpoints/
+checkpoints_multiseat/
 graphs/
+graphs_multiseat/
 rewards.csv
+rewards_multiseat.csv
 winrate.csv
+winrate_multiseat.csv
 benchmarks.csv
 benchmark_games.csv
+benchmarks_multiseat.csv
+benchmark_games_multiseat.csv
 replays/
 fresh_start.flag
 *.png

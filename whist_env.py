@@ -1,5 +1,7 @@
 """Whist card game environment compatible with Gymnasium."""
 
+import os
+
 import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
@@ -525,6 +527,9 @@ class SelfPlayWrapper(gym.Wrapper):
         self.policy_fn = policy_fn  # callable(obs, mask) -> action
         self.epsilon = epsilon      # probability of random opponent action
         self._episode_return = 0.0
+        self.randomize_learning_seat = os.getenv(
+            "WHIST_RANDOMIZE_LEARNING_SEAT", "1"
+        ) != "0"
 
     def set_policy(self, policy_fn):
         """Set the policy function used for opponent moves."""
@@ -540,8 +545,29 @@ class SelfPlayWrapper(gym.Wrapper):
 
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
-        self._learning_player = self.env.current_player
+        if self.randomize_learning_seat:
+            self._learning_player = int(
+                self.env.np_random.integers(0, NUM_PLAYERS)
+            )
+        else:
+            self._learning_player = self.env.current_player
         self._episode_return = 0.0
+
+        # Start each rollout at the selected seat so the shared policy learns
+        # opening, following, and defensive decisions from every position.
+        while self.env.current_player != self._learning_player:
+            valid_actions = np.flatnonzero(self.env.action_mask())
+            if self.policy_fn is not None and not (
+                self.epsilon > 0
+                and self.env.np_random.random() < self.epsilon
+            ):
+                other_action = self.policy_fn(
+                    self.env._get_obs(), self.env.action_mask()
+                )
+            else:
+                other_action = int(self.env.np_random.choice(valid_actions))
+            self.env.step(other_action)
+
         # Rebuild obs with learning player id
         obs = self.env._get_obs(player_id=self._learning_player)
         info = self.env._get_info()

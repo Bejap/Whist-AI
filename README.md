@@ -76,6 +76,27 @@ that starts more random and becomes stronger over time. The current baseline
 policy is feed-forward; `models.py` contains an optional transformer extractor
 that is not enabled by default.
 
+### Multi-seat experiment
+
+The stronger shared-policy experiment rotates the learning seat across all
+four players while retaining the latest-policy league opponents. It writes to
+separate files and does not overwrite the original run:
+
+```powershell
+$env:WHIST_TOTAL_EPISODES="1000000"
+python train_multiseat.py
+```
+
+Use a short validation run first:
+
+```powershell
+$env:WHIST_TOTAL_EPISODES="1000"
+$env:WHIST_CHECKPOINT_EVERY="500"
+$env:WHIST_EVAL_EVERY="500"
+$env:WHIST_EVAL_EPISODES="100"
+python train_multiseat.py
+```
+
 ### GPU usage
 
 By default, training/inference use `WHIST_DEVICE=auto`, which lets SB3/PyTorch
