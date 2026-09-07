@@ -524,6 +524,7 @@ class SelfPlayWrapper(gym.Wrapper):
         super().__init__(env)
         self.policy_fn = policy_fn  # callable(obs, mask) -> action
         self.epsilon = epsilon      # probability of random opponent action
+        self._episode_return = 0.0
 
     def set_policy(self, policy_fn):
         """Set the policy function used for opponent moves."""
@@ -540,6 +541,7 @@ class SelfPlayWrapper(gym.Wrapper):
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
         self._learning_player = self.env.current_player
+        self._episode_return = 0.0
         # Rebuild obs with learning player id
         obs = self.env._get_obs(player_id=self._learning_player)
         info = self.env._get_info()
@@ -551,6 +553,9 @@ class SelfPlayWrapper(gym.Wrapper):
         obs, reward, terminated, truncated, info = self.env.step(action)
 
         if terminated or truncated:
+            self._episode_return += float(reward)
+            info = dict(info)
+            info["episode_return"] = self._episode_return
             obs = self.env._get_obs(player_id=self._learning_player)
             return obs, reward, terminated, truncated, info
 
@@ -590,8 +595,13 @@ class SelfPlayWrapper(gym.Wrapper):
                     reward += TERMINAL_WIN_REWARD
                 else:
                     reward += TERMINAL_LOSS_REWARD
+                self._episode_return += float(reward)
+                info = dict(info)
+                info["episode_return"] = self._episode_return
                 obs = self.env._get_obs(player_id=self._learning_player)
                 return obs, reward, terminated, truncated, info
+
+        self._episode_return += float(reward)
 
         # Rebuild obs with learning player id
         obs = self.env._get_obs(player_id=self._learning_player)

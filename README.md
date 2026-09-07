@@ -19,6 +19,25 @@ Checkpoints are saved every 10,000 episodes to the `checkpoints/` directory,
 a reward log is written to `rewards.csv`, and a reward graph is saved to
 `graphs/` every 25,000 episodes.
 
+Benchmark a checkpoint against fixed opponents and write results to
+`benchmarks.csv`:
+
+```bash
+python evaluate.py --episodes 1000 --opponent all --mcts-sims 0
+```
+
+Generate the combined training and benchmark dashboard:
+
+```bash
+python plot.py
+```
+
+The dashboard includes complete episode return, win rate versus the frozen
+baseline, fixed-opponent win rates with confidence bands, and average trick
+difference. Per-game results are also written to `benchmark_games.csv` for
+seat/team and trump-condition breakdowns. Benchmark results are independent
+of the changing self-play pool.
+
 ### Resuming from a checkpoint
 
 Training **automatically resumes** from the latest checkpoint found in
@@ -103,6 +122,15 @@ Use MCTS-guided inference (enabled by default with 64 simulations per move):
 ```bash
 python play.py --mode watch --mcts-sims 64
 ```
+
+Save a game for later analysis as JSON:
+
+```bash
+python play.py --mode play --replay replays/my_game.json
+```
+
+The replay records every action, the legal cards at that point, rewards, and
+the score after each action.
 
 ## Environment
 

@@ -1,4 +1,4 @@
-"""Standalone plotting script – reads rewards.csv and produces a reward graph."""
+"""Generate training and benchmark graphics."""
 
 import csv
 import os
@@ -12,6 +12,133 @@ import matplotlib.pyplot as plt
 
 REWARDS_CSV = "rewards.csv"
 GRAPH_DIR = "graphs"
+BENCHMARK_CSV = "benchmarks.csv"
+BENCHMARK_DETAILS_CSV = "benchmark_games.csv"
+
+
+def _wilson_interval(wins, games, z=1.96):
+    if games <= 0:
+        return 0.0, 0.0
+    p = wins / games
+    denominator = 1 + z * z / games
+    centre = (p + z * z / (2 * games)) / denominator
+    spread = z * np.sqrt((p * (1 - p) + z * z / (4 * games)) / games) / denominator
+    return max(0.0, centre - spread), min(1.0, centre + spread)
+
+
+def plot_dashboard(out_dir=GRAPH_DIR):
+    """Create a four-panel dashboard from all available training metrics."""
+    os.makedirs(out_dir, exist_ok=True)
+    fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+
+    reward_ax, win_ax, benchmark_ax, tricks_ax = axes.flat
+    if os.path.exists(REWARDS_CSV):
+        rewards = pd.read_csv(REWARDS_CSV).drop_duplicates("episode", keep="last")
+        reward_ax.plot(rewards["episode"], rewards["avg_reward"], color="steelblue", alpha=0.45)
+        if len(rewards) >= 20:
+            reward_ax.plot(
+                rewards["episode"], rewards["avg_reward"].rolling(20, min_periods=1).mean(),
+                color="darkred", linewidth=2, label="20-point mean",
+            )
+        reward_ax.axhline(0, color="gray", linestyle="--", linewidth=1)
+    reward_ax.set_title("Complete Episode Return")
+    reward_ax.set_xlabel("Episode")
+    reward_ax.set_ylabel("Return")
+    reward_ax.grid(alpha=0.25)
+
+    if os.path.exists("winrate.csv"):
+        win_rates = pd.read_csv("winrate.csv").drop_duplicates("episode", keep="last")
+        win_ax.plot(win_rates["episode"], win_rates["win_rate_vs_baseline"], marker="o")
+        win_ax.axhline(0.5, color="gray", linestyle="--", linewidth=1)
+    win_ax.set_title("Win Rate vs Frozen Baseline")
+    win_ax.set_ylim(0, 1)
+    win_ax.set_xlabel("Episode")
+    win_ax.set_ylabel("Win rate")
+    win_ax.grid(alpha=0.25)
+
+    if os.path.exists(BENCHMARK_CSV):
+        benchmarks = pd.read_csv(BENCHMARK_CSV)
+        for opponent, group in benchmarks.groupby("opponent"):
+            group = group.sort_values("checkpoint_episode")
+            lower, upper = [], []
+            for _, row in group.iterrows():
+                lo, hi = _wilson_interval(int(row["wins"]), int(row["games"]))
+                lower.append(lo)
+                upper.append(hi)
+            x = group["checkpoint_episode"]
+            y = group["win_rate"]
+            benchmark_ax.plot(x, y, marker="o", label=opponent)
+            benchmark_ax.fill_between(x, lower, upper, alpha=0.15)
+        benchmark_ax.legend()
+    benchmark_ax.axhline(0.5, color="gray", linestyle="--", linewidth=1)
+    benchmark_ax.set_ylim(0, 1)
+    benchmark_ax.set_title("Fixed Opponent Benchmarks")
+    benchmark_ax.set_xlabel("Checkpoint episode")
+    benchmark_ax.set_ylabel("Win rate")
+    benchmark_ax.grid(alpha=0.25)
+
+    if os.path.exists(BENCHMARK_CSV):
+        benchmarks = pd.read_csv(BENCHMARK_CSV)
+        for opponent, group in benchmarks.groupby("opponent"):
+            group = group.sort_values("checkpoint_episode")
+            tricks_ax.plot(
+                group["checkpoint_episode"], group["avg_trick_difference"],
+                marker="o", label=opponent,
+            )
+        tricks_ax.axhline(0, color="gray", linestyle="--", linewidth=1)
+        tricks_ax.legend()
+    tricks_ax.set_title("Average Trick Difference")
+    tricks_ax.set_xlabel("Checkpoint episode")
+    tricks_ax.set_ylabel("Agent tricks - opponent tricks")
+    tricks_ax.grid(alpha=0.25)
+
+    fig.suptitle("Whist Agent Training Dashboard", fontsize=16)
+    fig.tight_layout()
+    path = os.path.join(out_dir, "dashboard.png")
+    fig.savefig(path, dpi=120)
+    plt.close(fig)
+    print(f"Dashboard saved to {path}")
+
+
+def plot_breakdowns(out_dir=GRAPH_DIR):
+    """Plot benchmark win rates by agent team and trump condition."""
+    if not os.path.exists(BENCHMARK_DETAILS_CSV):
+        return
+    details = pd.read_csv(BENCHMARK_DETAILS_CSV)
+    if details.empty:
+        return
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    seat = details.groupby(["opponent", "agent_team"], as_index=False)["win"].mean()
+    for opponent, group in seat.groupby("opponent"):
+        axes[0].plot(group["agent_team"], group["win"], marker="o", label=opponent)
+    axes[0].set_xticks([0, 1], ["Team 0", "Team 1"])
+    axes[0].set_ylim(0, 1)
+    axes[0].set_title("Win Rate by Agent Team")
+    axes[0].set_ylabel("Win rate")
+    axes[0].legend()
+    axes[0].grid(alpha=0.25)
+
+    trump = details.copy()
+    trump["trump_label"] = trump["trump_suit"].map({0: "Clubs", 1: "Diamonds", 2: "Hearts", 3: "Spades", 4: "No trump"})
+    grouped = trump.groupby(["opponent", "trump_label"], as_index=False)["win"].mean()
+    order = ["Clubs", "Diamonds", "Hearts", "Spades", "No trump"]
+    positions = np.arange(len(order))
+    for opponent, group in grouped.groupby("opponent"):
+        values = group.set_index("trump_label")["win"].reindex(order)
+        axes[1].plot(positions, values, marker="o", label=opponent)
+    axes[1].set_xticks(positions, order, rotation=25)
+    axes[1].set_ylim(0, 1)
+    axes[1].set_title("Win Rate by Trump Condition")
+    axes[1].set_ylabel("Win rate")
+    axes[1].legend()
+    axes[1].grid(alpha=0.25)
+
+    fig.tight_layout()
+    path = os.path.join(out_dir, "benchmark_breakdowns.png")
+    fig.savefig(path, dpi=120)
+    plt.close(fig)
+    print(f"Breakdown graph saved to {path}")
 
 
 def plot_rewards(csv_path=REWARDS_CSV, out_dir=GRAPH_DIR):
@@ -64,3 +191,5 @@ def plot_rewards(csv_path=REWARDS_CSV, out_dir=GRAPH_DIR):
 
 if __name__ == "__main__":
     plot_rewards()
+    plot_dashboard()
+    plot_breakdowns()

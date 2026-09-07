@@ -525,8 +525,8 @@ class EpisodeTracker(BaseCallback):
         for idx, done in enumerate(self.locals.get("dones", [])):
             if done:
                 ep_reward = self.locals.get("infos", [{}])[idx].get(
-                    "episode", {}
-                ).get("r", None)
+                    "episode_return", None
+                )
                 # Fallback: use the reward from the buffer
                 if ep_reward is None:
                     ep_reward = float(self.locals.get("rewards", [0])[idx])

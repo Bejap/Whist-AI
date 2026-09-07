@@ -16,6 +16,7 @@ Usage
 
 import sys
 import copy
+import json
 import os
 
 import numpy as np
@@ -269,11 +270,17 @@ def choose_mode() -> str:
 # ---------------------------------------------------------------------------
 
 
-def run_game(mode: str, mcts_sims: int) -> None:
+def run_game(mode: str, mcts_sims: int, replay_path: str | None = None) -> None:
     """Run a complete Whist round in the requested mode."""
     model = load_model()
     env = WhistEnv(render_mode=None)  # display is handled here, not in env
     env.reset()
+    replay = {
+        "mode": mode,
+        "mcts_sims": mcts_sims,
+        "trump_suit": int(env.trump_suit),
+        "events": [],
+    }
 
     mode_labels = {
         "watch":  "AI vs AI (all 4 seats)",
@@ -314,9 +321,20 @@ def run_game(mode: str, mcts_sims: int) -> None:
             action = agent_action(model, env, mcts_sims=mcts_sims)
             print(f"  → P{player + 1} plays: {card_short(action)}")
 
+        valid_cards = [int(card) for card in np.flatnonzero(env.action_mask())]
         trick_display.append((player, action))
 
-        env.step(action)
+        _, reward, terminated, truncated, _ = env.step(action)
+        replay["events"].append({
+            "player": player,
+            "action": int(action),
+            "card": card_short(action),
+            "valid_cards": valid_cards,
+            "reward": float(reward),
+            "terminated": bool(terminated),
+            "truncated": bool(truncated),
+            "team_tricks": list(env.team_tricks),
+        })
 
         # --- Trick just resolved (4 cards played) ---
         if len(trick_display) == NUM_PLAYERS and len(env.trick_cards) == 0:
@@ -341,6 +359,18 @@ def run_game(mode: str, mcts_sims: int) -> None:
     else:
         print("  🤝 It's a tie!")
     print("=" * 50)
+
+    replay["team_tricks"] = list(env.team_tricks)
+    replay["winner_team"] = (
+        0 if env.team_tricks[0] > env.team_tricks[1]
+        else 1 if env.team_tricks[1] > env.team_tricks[0]
+        else None
+    )
+    if replay_path:
+        os.makedirs(os.path.dirname(replay_path) or ".", exist_ok=True)
+        with open(replay_path, "w", encoding="utf-8") as file:
+            json.dump(replay, file, indent=2)
+        print(f"Replay saved to {replay_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -368,7 +398,11 @@ if __name__ == "__main__":
         default=64,
         help="Number of root MCTS simulations for AI moves (0 disables search).",
     )
+    parser.add_argument(
+        "--replay",
+        help="Write a JSON replay containing actions, legal cards, rewards, and scores.",
+    )
     args = parser.parse_args()
 
     mode = args.mode if args.mode else choose_mode()
-    run_game(mode, mcts_sims=max(0, args.mcts_sims))
+    run_game(mode, mcts_sims=max(0, args.mcts_sims), replay_path=args.replay)

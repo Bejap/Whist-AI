@@ -20,6 +20,9 @@ checkpoints/
 graphs/
 rewards.csv
 winrate.csv
+benchmarks.csv
+benchmark_games.csv
+replays/
 fresh_start.flag
 *.png
 *.tar.gz
