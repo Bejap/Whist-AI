@@ -116,7 +116,10 @@ python train_strong.py
 ```
 
 It writes checkpoints, reward/win-rate graphs, and benchmark scores to its own
-`*_strong` paths and never replaces the original or multi-seat runs.
+`*_strong` paths and never replaces the original or multi-seat runs. By
+default it saves a checkpoint every 5,000 episodes, a graph every 10,000
+episodes, and logs reward every 250 episodes. Each checkpoint uses a compact
+50-game raw benchmark plus a 4-game hidden-hand MCTS spot check.
 
 ### GPU usage
 

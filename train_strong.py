@@ -30,8 +30,8 @@ def acquire_lock():
 
 def checkpoint_evaluator(model, checkpoint_path, episode):
     global BEST_SCORE
-    raw = evaluate_against_rule(model, episodes=100, mcts_sims=0, seed=episode * 10)
-    search = evaluate_against_rule(model, episodes=8, mcts_sims=4, seed=episode * 10 + 1)
+    raw = evaluate_against_rule(model, episodes=50, mcts_sims=0, seed=episode * 10)
+    search = evaluate_against_rule(model, episodes=4, mcts_sims=4, seed=episode * 10 + 1)
     append_checkpoint_evaluation(SCORES_CSV, episode, raw, search)
     print(
         f"  Rule benchmark | raw {raw['win_rate']:.1%} ({raw['avg_trick_difference']:+.2f} tricks)"
@@ -67,9 +67,9 @@ def main():
     train.GRAPH_DIR = "graphs_strong"
     train.BASELINE_CHECKPOINT = os.path.join(train.CHECKPOINT_DIR, "baseline.pth")
     train.TOTAL_EPISODES = int(os.getenv("WHIST_TOTAL_EPISODES", "1000000"))
-    train.CHECKPOINT_EVERY = int(os.getenv("WHIST_CHECKPOINT_EVERY", "10000"))
-    train.GRAPH_EVERY = int(os.getenv("WHIST_GRAPH_EVERY", "25000"))
-    train.LOG_EVERY = int(os.getenv("WHIST_LOG_EVERY", "500"))
+    train.CHECKPOINT_EVERY = int(os.getenv("WHIST_CHECKPOINT_EVERY", "5000"))
+    train.GRAPH_EVERY = int(os.getenv("WHIST_GRAPH_EVERY", "10000"))
+    train.LOG_EVERY = int(os.getenv("WHIST_LOG_EVERY", "250"))
     train.EVAL_EVERY = 0
     train.POLICY_KWARGS = {
         "features_extractor_class": TransformerCardExtractor,
