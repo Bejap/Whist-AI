@@ -256,6 +256,10 @@ class WhistEnv(gym.Env):
             mask[c] = 1.0
         return mask
 
+    def action_masks(self) -> np.ndarray:
+        """Return the valid-action mask using SB3-Contrib's API."""
+        return self.action_mask()
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -529,6 +533,10 @@ class SelfPlayWrapper(gym.Wrapper):
         """Set the epsilon for opponent randomization."""
         self.epsilon = epsilon
 
+    def action_masks(self) -> np.ndarray:
+        """Expose valid actions to MaskablePPO through the wrapper."""
+        return self.env.action_masks()
+
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
         self._learning_player = self.env.current_player
@@ -539,9 +547,6 @@ class SelfPlayWrapper(gym.Wrapper):
 
     def step(self, action):
         team = TEAMS[self._learning_player]
-
-        # Record trick counts before the learning player's action
-        tricks_before = self.env.team_tricks[team]
 
         obs, reward, terminated, truncated, info = self.env.step(action)
 
@@ -566,7 +571,7 @@ class SelfPlayWrapper(gym.Wrapper):
                 other_action = int(self.env.np_random.choice(valid_actions))
 
             tricks_before_step = list(self.env.team_tricks)
-            obs, _r, terminated, truncated, info = self.env.step(other_action)
+            obs, _opponent_reward, terminated, truncated, info = self.env.step(other_action)
 
             # If a trick resolved during an opponent turn, credit the
             # learning player with +2 (team won) or -2 (team lost).
@@ -579,6 +584,12 @@ class SelfPlayWrapper(gym.Wrapper):
                     reward += TRICK_LOSS_REWARD
 
             if terminated or truncated:
+                # Re-assign the round outcome because the final opponent
+                # action's terminal reward is not useful to the learner.
+                if self.env.team_tricks[team] > self.env.team_tricks[1 - team]:
+                    reward += TERMINAL_WIN_REWARD
+                else:
+                    reward += TERMINAL_LOSS_REWARD
                 obs = self.env._get_obs(player_id=self._learning_player)
                 return obs, reward, terminated, truncated, info
 

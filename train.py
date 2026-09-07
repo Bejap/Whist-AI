@@ -28,7 +28,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 print("F: pyplot imported", flush=True)
 
-from stable_baselines3 import PPO
+from sb3_contrib import MaskablePPO
 print("G: stable_baselines3 imported", flush=True)
 
 from stable_baselines3.common.callbacks import BaseCallback
@@ -78,7 +78,7 @@ NUM_ENVS = 1 if os.name == "nt" else 4
 # exhaust the paging file; keep Windows in-process by default.
 VEC_ENV_CLASS = DummyVecEnv if os.name == "nt" else SubprocVecEnv
 
-# PPO hyper-parameters – tuned for RTX 3090 / GPU throughput
+# MaskablePPO hyper-parameters – tuned for the current feed-forward baseline
 # n_steps per env; total rollout = NUM_ENVS x n_steps = 4 x 2048 = 8192
 PPO_KWARGS = dict(
     n_steps=2048,
@@ -405,7 +405,7 @@ def make_league_policy_fn(model, pool_paths, latest_prob):
         if path not in _cache:
             try:
                 # Load policy parameters only (no env needed for inference)
-                _cache[path] = PPO.load(path, device=DEVICE)
+                _cache[path] = MaskablePPO.load(path, device=DEVICE)
             except Exception as exc:
                 print(f"  ⚠️ Skipping incompatible league checkpoint {path}: {exc}")
                 _cache[path] = None
@@ -446,7 +446,7 @@ def evaluate_win_rate(model, n_episodes=EVAL_EPISODES):
         return None
 
     try:
-        baseline_model = PPO.load(BASELINE_CHECKPOINT, device=DEVICE)
+        baseline_model = MaskablePPO.load(BASELINE_CHECKPOINT, device=DEVICE)
     except Exception as exc:
         print(f"  ⚠️ Could not load baseline for eval: {exc}")
         return None
@@ -640,7 +640,7 @@ def train():
     if ckpt_path is not None:
         print(f"► Attempting resume from checkpoint: {ckpt_path} (episode {start_episode})")
         try:
-            model = PPO.load(ckpt_path, env=env, device=DEVICE)
+            model = MaskablePPO.load(ckpt_path, env=env, device=DEVICE)
             # Apply updated schedule to resumed model
             model.learning_rate = LR_SCHEDULE
             model.ent_coef = ENT_COEF_START  # will be decayed by EpisodeTracker
@@ -651,7 +651,7 @@ def train():
             print("  ↳ Starting a fresh PPO run.")
             ckpt_path = None
             start_episode = 0
-            model = PPO(
+            model = MaskablePPO(
                 "MlpPolicy",
                 env,
                 learning_rate=LR_SCHEDULE,
@@ -662,7 +662,7 @@ def train():
     else:
         print("► Starting fresh training (episode 0)")
         start_episode = 0
-        model = PPO(
+        model = MaskablePPO(
             "MlpPolicy",
             env,
             learning_rate=LR_SCHEDULE,
@@ -703,7 +703,7 @@ def train():
     tracker = EpisodeTracker(start_episode, pbar, model)
 
     # Estimate total timesteps needed (with margin)
-    total_timesteps = remaining * STEPS_PER_EPISODE * 2
+    total_timesteps = remaining * STEPS_PER_EPISODE
     print(f"► Total timesteps planned: {total_timesteps:,}", flush=True)
     print(
         f"► Starting model.learn() — heartbeat every {HEARTBEAT_INTERVAL_SECS}s …",

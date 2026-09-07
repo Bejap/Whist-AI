@@ -60,7 +60,7 @@ def load_model():
     """Load the latest checkpoint."""
     from train import latest_checkpoint
     from stable_baselines3 import PPO
-    from sb3_contrib import RecurrentPPO
+    from sb3_contrib import MaskablePPO
 
     device = os.getenv("WHIST_DEVICE", "auto")
     ckpt_path, episode = latest_checkpoint()
@@ -70,8 +70,8 @@ def load_model():
 
     print(f"Loading checkpoint: {ckpt_path} (episode {episode})")
     try:
-        model = RecurrentPPO.load(ckpt_path, device=device)
-        print("Model type: RecurrentPPO")
+        model = MaskablePPO.load(ckpt_path, device=device)
+        print("Model type: MaskablePPO")
     except Exception:
         model = PPO.load(ckpt_path, device=device)
         print("Model type: PPO")
