@@ -310,6 +310,15 @@ def save_reward_graph():
                     rewards.append(float(row[1]))
 
         if episodes:
+            ordered = sorted(zip(episodes, rewards), key=lambda item: item[0])
+            episodes = [episode for episode, _ in ordered]
+            rewards = [reward for _, reward in ordered]
+            deduplicated = {}
+            for episode, reward in zip(episodes, rewards):
+                deduplicated[episode] = reward
+            episodes = sorted(deduplicated)
+            rewards = [deduplicated[episode] for episode in episodes]
+
             fig, ax = plt.subplots(figsize=(10, 5))
             ax.plot(episodes, rewards, linewidth=0.8, alpha=0.6, label="avg reward")
 
@@ -344,6 +353,13 @@ def save_reward_graph():
                     win_rates.append(float(row[1]))
 
         if episodes:
+            ordered = sorted(zip(episodes, win_rates), key=lambda item: item[0])
+            deduplicated = {}
+            for episode, win_rate in ordered:
+                deduplicated[episode] = win_rate
+            episodes = sorted(deduplicated)
+            win_rates = [deduplicated[episode] for episode in episodes]
+
             fig, ax = plt.subplots(figsize=(10, 5))
             ax.plot(episodes, win_rates, marker="o", linewidth=1.5,
                     color="green", label="win rate vs frozen baseline")
