@@ -111,6 +111,19 @@ support in PyTorch is limited and CPU fallback is common.
 
 ## Playing
 
+### Browser table
+
+Launch the interactive card table:
+
+```bash
+python web_app.py
+```
+
+Then open `http://127.0.0.1:8000` in a browser. Click a legal card in your
+hand to play it; the AI completes the other seats automatically. The browser
+table uses the latest checkpoint and 16 MCTS simulations by default. Set
+`WHIST_WEB_MCTS_SIMS=64` for stronger but slower decisions.
+
 Watch the trained agent play a full round:
 
 ```bash
