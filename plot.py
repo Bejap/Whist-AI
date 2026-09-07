@@ -189,7 +189,48 @@ def plot_rewards(csv_path=REWARDS_CSV, out_dir=GRAPH_DIR):
     print(f"Graph saved to {path}")
 
 
+def plot_winrate(csv_path="winrate.csv", out_dir=GRAPH_DIR):
+    """Generate the original win-rate-vs-baseline graph for any run."""
+    if not os.path.exists(csv_path):
+        print(f"Skipping win-rate graph: {csv_path} not found.")
+        return
+
+    df = pd.read_csv(csv_path)
+    if df.empty or "episode" not in df.columns or "win_rate_vs_baseline" not in df.columns:
+        print(f"Skipping win-rate graph: no usable data in {csv_path}.")
+        return
+
+    df = df.sort_values("episode").drop_duplicates("episode", keep="last")
+    os.makedirs(out_dir, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(14, 6))
+    ax.plot(
+        df["episode"], df["win_rate_vs_baseline"], marker="o", linewidth=1.5,
+        color="green", label="win rate vs frozen baseline",
+    )
+    ax.axhline(0.5, color="gray", linestyle="--", linewidth=1, label="50% parity")
+    ax.set_xlabel("Episode")
+    ax.set_ylabel("Win rate")
+    ax.set_ylim(0, 1)
+    last_ep = int(df["episode"].iloc[-1])
+    ax.set_title(f"Whist Agent - Win Rate vs Frozen Baseline ({last_ep:,} episodes)")
+    ax.legend(loc="lower right", framealpha=0.8)
+    ax.grid(True, alpha=0.3, linestyle="--")
+    fig.tight_layout()
+    path = os.path.join(out_dir, f"winrate_ep_{last_ep}.png")
+    fig.savefig(path, dpi=100)
+    plt.close(fig)
+    print(f"Win-rate graph saved to {path}")
+
+
+def plot_legacy_pair(rewards_csv, winrate_csv, out_dir):
+    """Restore the original reward and win-rate graph pair for a run."""
+    plot_rewards(rewards_csv, out_dir)
+    plot_winrate(winrate_csv, out_dir)
+
+
 if __name__ == "__main__":
     plot_rewards()
+    plot_winrate()
+    plot_legacy_pair("rewards_multiseat.csv", "winrate_multiseat.csv", "graphs_multiseat")
     plot_dashboard()
     plot_breakdowns()

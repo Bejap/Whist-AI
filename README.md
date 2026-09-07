@@ -32,6 +32,11 @@ Generate the combined training and benchmark dashboard:
 python plot.py
 ```
 
+This also preserves the original standalone graph pair. The original run is
+written to `graphs/reward_ep_*.png` and `graphs/winrate_ep_*.png`; the
+multi-seat run gets the same pair in `graphs_multiseat/`, alongside the newer
+dashboard graphics.
+
 The dashboard includes complete episode return, win rate versus the frozen
 baseline, fixed-opponent win rates with confidence bands, and average trick
 difference. Per-game results are also written to `benchmark_games.csv` for
