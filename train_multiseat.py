@@ -5,11 +5,29 @@ checkpoint and metric paths. Configure the duration with WHIST_TOTAL_EPISODES.
 """
 
 import os
+import atexit
 
 import train
 
 
+LOCK_PATH = "train_multiseat.lock"
+
+
+def acquire_lock():
+    try:
+        lock = open(LOCK_PATH, "x", encoding="ascii")
+    except FileExistsError as exc:
+        raise RuntimeError(
+            f"Another multi-seat run appears to be active ({LOCK_PATH}). "
+            "Stop it before starting a second run."
+        ) from exc
+    lock.write(str(os.getpid()))
+    lock.close()
+    atexit.register(lambda: os.remove(LOCK_PATH) if os.path.exists(LOCK_PATH) else None)
+
+
 def main():
+    acquire_lock()
     train.CHECKPOINT_DIR = os.getenv(
         "WHIST_EXPERIMENT_CHECKPOINT_DIR", "checkpoints_multiseat"
     )

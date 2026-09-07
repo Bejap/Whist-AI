@@ -18,6 +18,8 @@ ENV/
 ## Training outputs
 checkpoints/
 checkpoints_multiseat/
+train_multiseat.lock
+*_conflicted_*
 graphs/
 graphs_multiseat/
 rewards.csv
