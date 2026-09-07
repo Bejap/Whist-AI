@@ -35,6 +35,7 @@ class WhistWebGame:
         self.history = []
         self.message = "Your turn"
         self.done = False
+        self.last_completed_trick = None
 
     def ensure_model(self):
         if self.model is not None or self.model_error is not None:
@@ -56,7 +57,12 @@ class WhistWebGame:
             player = self.env.current_player
             action = self.choose_ai_action()
             valid_cards = [int(card) for card in np.flatnonzero(self.env.action_mask())]
+            trick_before = list(self.env.trick_cards)
             _, reward, terminated, truncated, info = self.env.step(action)
+            if not self.env.trick_cards and len(trick_before) == 3:
+                self.record_completed_trick(
+                    trick_before + [(player, action)], self.env.lead_player
+                )
             self.history.append({
                 "player": player,
                 "action": action,
@@ -74,11 +80,17 @@ class WhistWebGame:
             raise ValueError("This game is over. Start a new game.")
         if self.env.current_player != 0:
             raise ValueError("The AI is still thinking.")
+        self.last_completed_trick = None
         action = int(action)
         if action not in self.env.hands[0] or self.env.action_mask()[action] == 0:
             raise ValueError("That card is not legal right now.")
         valid_cards = [int(card) for card in np.flatnonzero(self.env.action_mask())]
+        trick_before = list(self.env.trick_cards)
         _, reward, terminated, truncated, info = self.env.step(action)
+        if not self.env.trick_cards and len(trick_before) == 3:
+            self.record_completed_trick(
+                trick_before + [(0, action)], self.env.lead_player
+            )
         self.history.append({
             "player": 0,
             "action": action,
@@ -92,6 +104,15 @@ class WhistWebGame:
         else:
             self.advance_ai()
         return self.state()
+
+    def record_completed_trick(self, trick_cards, winner):
+        self.last_completed_trick = {
+            "cards": [
+                {"player": int(player), "card": int(card), "name": card_name(card)}
+                for player, card in trick_cards
+            ],
+            "winner": int(winner),
+        }
 
     def state(self):
         legal = self.env.action_mask() if not self.env.done else np.zeros(52)
@@ -126,6 +147,7 @@ class WhistWebGame:
             "model_error": self.model_error,
             "mcts_sims": MCTS_SIMS,
             "history": self.history[-8:],
+            "completed_trick": self.last_completed_trick,
         }
 
 
@@ -193,7 +215,7 @@ header { display:flex; justify-content:space-between; align-items:end; gap:20px;
 .seat { position:absolute; display:flex; flex-direction:column; align-items:center; gap:8px; z-index:2; } .seat.top { top:25px; left:50%; transform:translateX(-50%); } .seat.left { left:27px; top:50%; transform:translateY(-50%); } .seat.right { right:27px; top:50%; transform:translateY(-50%); } .seat.bottom { bottom:25px; left:50%; transform:translateX(-50%); }
 .seat-label { color:var(--muted); font:600 12px Arial,sans-serif; text-transform:uppercase; letter-spacing:1px; } .seat-score { color:var(--gold); font:14px Arial,sans-serif; }
 .pip { display:grid; place-items:center; width:70px; height:54px; border:1px solid rgba(255,255,255,.2); border-radius:9px; background:rgba(255,255,255,.08); color:var(--ink); font:bold 25px Georgia,serif; } .pip.red { color:#e78678; }
-.center { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:min(410px,58%); min-height:220px; border:1px solid rgba(255,255,255,.1); border-radius:14px; background:rgba(5,27,27,.18); display:flex; flex-wrap:wrap; justify-content:center; align-content:center; gap:16px; padding:38px; z-index:1; } .trick-card { position:relative; } .trick-card small { position:absolute; left:50%; transform:translateX(-50%); bottom:-17px; color:var(--muted); font:10px Arial,sans-serif; white-space:nowrap; }
+.center { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:min(410px,58%); min-height:220px; border:1px solid rgba(255,255,255,.1); border-radius:14px; background:rgba(5,27,27,.18); display:flex; flex-wrap:wrap; justify-content:center; align-content:center; gap:16px; padding:38px; z-index:1; } .trick-card { position:relative; } .trick-card small { position:absolute; left:50%; transform:translateX(-50%); bottom:-17px; color:var(--muted); font:10px Arial,sans-serif; white-space:nowrap; } .trick-card.reveal .card { animation:card-arrive .42s cubic-bezier(.2,.8,.2,1) both; animation-delay:calc(var(--i) * 150ms); } @keyframes card-arrive { from { opacity:0; transform:translateY(-28px) rotate(-5deg) scale(.86); } to { opacity:1; transform:translateY(0) rotate(0) scale(1); } }
 .card { width:62px; height:88px; border:1px solid #c9bfae; border-radius:7px; background:var(--card); color:var(--card-ink); box-shadow:0 4px 7px rgba(0,0,0,.2); cursor:pointer; display:flex; flex-direction:column; justify-content:space-between; padding:7px 8px; font:700 17px Georgia,serif; transition:transform .14s, box-shadow .14s, opacity .14s; } .card:hover:not(:disabled) { transform:translateY(-10px); box-shadow:0 12px 15px rgba(0,0,0,.3); } .card:disabled { cursor:not-allowed; opacity:.42; } .card.red { color:#b23434; } .card .corner { font-size:13px; } .card .suit { align-self:center; font-size:27px; } .hand { position:relative; z-index:5; display:flex; justify-content:center; gap:7px; min-height:112px; padding:11px 8px; overflow-x:auto; } .hand .card { flex:0 0 auto; }
 .panel { display:grid; grid-template-columns:1.3fr 1fr; gap:14px; margin-top:16px; } .info { border:1px solid var(--line); background:#102f2d; border-radius:8px; padding:15px 17px; } .info h2 { margin:0 0 8px; font-size:16px; font-weight:500; } .info p { margin:4px 0; color:var(--muted); font:13px/1.45 Arial,sans-serif; } .accent { color:var(--gold); } .history { max-height:100px; overflow:auto; color:var(--muted); font:12px/1.5 Arial,sans-serif; }
 .overlay { position:absolute; inset:0; display:none; place-items:center; background:rgba(5,22,22,.72); z-index:10; } .overlay.show { display:grid; } .result { text-align:center; } .result h2 { font-size:34px; margin:0 0 8px; } .result p { color:var(--muted); font:14px Arial,sans-serif; }
@@ -224,11 +246,13 @@ function cardLabel(card) { return `${ranks[card.rank]}${suits[card.suit]}`; }
 function render(s) {
  state=s; $('status').textContent=s.done ? 'Round complete' : s.current_player===0 ? 'Your turn' : 'AI thinking…'; $('engine').textContent=s.model_loaded ? `MaskablePPO · ${s.mcts_sims} MCTS simulations` : 'Random fallback · no checkpoint loaded'; $('trump').textContent=`Trump: ${s.trump}`;
  $('south-score').textContent=`${s.team_tricks[0]} tricks · Team 0`; $('north-score').textContent=`${s.team_tricks[0]} tricks`; $('west-score').textContent=`${s.team_tricks[1]} tricks`; $('east-score').textContent=`${s.team_tricks[1]} tricks`;
- $('hand').innerHTML=''; s.hand.forEach(card=>{const b=document.createElement('button'); b.className='card '+([1,2].includes(card.suit)?'red':''); b.disabled=!card.legal||s.done||s.current_player!==0; b.title=card.name; b.innerHTML=`<span class="corner">${ranks[card.rank]}</span><span class="suit">${suits[card.suit]}</span><span class="corner">${ranks[card.rank]}</span>`; b.onclick=()=>play(card.id); $('hand').appendChild(b);});
- $('trick').innerHTML=s.trick.length?s.trick.map(t=>`<div class="trick-card"><div class="card ${[1,2].includes(Math.floor(t.card/13))?'red':''}"><span class="corner">${ranks[t.card%13]}</span><span class="suit">${suits[Math.floor(t.card/13)]}</span><span class="corner">${ranks[t.card%13]}</span></div><small>P${t.player+1}</small></div>`).join(''):'<div style="color:var(--muted);font:13px Arial">Cards played here will appear on the table</div>';
+ const showingCompleted = Boolean(s.completed_trick); const visibleTrick = showingCompleted ? s.completed_trick.cards : s.trick;
+ $('hand').innerHTML=''; s.hand.forEach(card=>{const b=document.createElement('button'); b.className='card '+([1,2].includes(card.suit)?'red':''); b.disabled=!card.legal||s.done||s.current_player!==0||showingCompleted; b.title=card.name; b.innerHTML=`<span class="corner">${ranks[card.rank]}</span><span class="suit">${suits[card.suit]}</span><span class="corner">${ranks[card.rank]}</span>`; b.onclick=()=>play(card.id); $('hand').appendChild(b);});
+ $('trick').innerHTML=visibleTrick.length?visibleTrick.map((t,i)=>`<div class="trick-card ${showingCompleted?'reveal':''}" style="--i:${i}"><div class="card ${[1,2].includes(Math.floor(t.card/13))?'red':''}"><span class="corner">${ranks[t.card%13]}</span><span class="suit">${suits[Math.floor(t.card/13)]}</span><span class="corner">${ranks[t.card%13]}</span></div><small>P${t.player+1}</small></div>`).join(''):'<div style="color:var(--muted);font:13px Arial">Cards played here will appear on the table</div>';
  $('history').innerHTML=s.history.length?s.history.slice().reverse().map(e=>`P${e.player+1} played <strong>${e.card}</strong> · ${e.team_tricks[0]}–${e.team_tricks[1]}`).join('<br>'):'No cards played yet.';
- $('hint').textContent=s.done?'Start a new deal to play again.':s.current_player===0?'Choose a legal card from your hand.':'The AI is completing the trick.';
+ $('hint').textContent=s.done?'Start a new deal to play again.':showingCompleted?`Trick complete · P${s.completed_trick.winner+1} wins. Next deal in a moment…`:s.current_player===0?'Choose a legal card from your hand.':'The AI is completing the trick.';
  $('overlay').classList.toggle('show',s.done); if(s.done){$('result-title').textContent=s.winner_team===0?'Your team wins':'The AI team wins'; $('result-text').textContent=`Final score: ${s.team_tricks[0]}–${s.team_tricks[1]}`;}
+ if(showingCompleted){ setTimeout(()=>{ if(state===s){ render({...s,completed_trick:null}); } }, 1500); }
 }
 async function play(action){ try { render({...state,current_player:1}); render(await api('/api/play',{method:'POST',body:JSON.stringify({action})})); } catch(e){ $('hint').textContent=e.message; render(await api('/api/state')); } }
 async function newGame(){ render(await api('/api/new',{method:'POST',body:'{}'})); }
