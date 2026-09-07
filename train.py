@@ -117,6 +117,7 @@ KEEP_CHECKPOINTS = max(KEEP_CHECKPOINTS, LEAGUE_POOL_SIZE)
 # Frozen baseline checkpoint (for win-rate evaluation). Set once the first
 # checkpoint exists; never updated again so win-rate is comparable over time.
 BASELINE_CHECKPOINT = os.path.join(CHECKPOINT_DIR, "baseline.pth")
+CHECKPOINT_EVALUATOR = None
 
 
 _GPU_CAP_DISABLED = False
@@ -258,6 +259,7 @@ def save_checkpoint(model, episode):
     files = sorted(set(files), key=os.path.getmtime)
     while len(files) > KEEP_CHECKPOINTS:
         os.remove(files.pop(0))
+    return path
 
 
 def ensure_baseline_checkpoint(model, episode):
@@ -572,7 +574,7 @@ class EpisodeTracker(BaseCallback):
 
                 # Checkpoint
                 if self.episode % CHECKPOINT_EVERY == 0:
-                    save_checkpoint(self.model, self.episode)
+                    checkpoint_path = save_checkpoint(self.model, self.episode)
                     tqdm.write(
                         f"  💾 Checkpoint saved at episode {self.episode}"
                     )
@@ -595,8 +597,16 @@ class EpisodeTracker(BaseCallback):
                     except Exception as exc:
                         tqdm.write(f"  ⚠️ set_policy failed: {exc}")
 
+                    if CHECKPOINT_EVALUATOR is not None:
+                        try:
+                            CHECKPOINT_EVALUATOR(
+                                self.model, checkpoint_path, self.episode
+                            )
+                        except Exception as exc:
+                            tqdm.write(f"  ⚠️ checkpoint evaluation failed: {exc}")
+
                 # Win-rate evaluation vs frozen baseline
-                if self.episode % EVAL_EVERY == 0:
+                if EVAL_EVERY > 0 and self.episode % EVAL_EVERY == 0:
                     win_rate = evaluate_win_rate(self.model)
                     if win_rate is not None:
                         append_winrate(self.episode, win_rate)

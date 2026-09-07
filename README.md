@@ -102,6 +102,22 @@ $env:WHIST_EVAL_EPISODES="100"
 python train_multiseat.py
 ```
 
+### Strong transformer experiment
+
+`train_strong.py` is an isolated experiment for stronger strategic play. It
+uses the transformer card extractor, lower heuristic shaping, a larger terminal
+team-result reward, and promotion by fixed rule-opponent performance. Each
+checkpoint receives a fast raw-policy evaluation over balanced team assignments
+and a separate hidden-hand MCTS evaluation. The best raw-policy checkpoint is
+saved as `checkpoints_strong/best_rule.pth`.
+
+```powershell
+python train_strong.py
+```
+
+It writes checkpoints, reward/win-rate graphs, and benchmark scores to its own
+`*_strong` paths and never replaces the original or multi-seat runs.
+
 ### GPU usage
 
 By default, training/inference use `WHIST_DEVICE=auto`, which lets SB3/PyTorch

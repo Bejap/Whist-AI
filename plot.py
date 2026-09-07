@@ -232,5 +232,6 @@ if __name__ == "__main__":
     plot_rewards()
     plot_winrate()
     plot_legacy_pair("rewards_multiseat.csv", "winrate_multiseat.csv", "graphs_multiseat")
+    plot_legacy_pair("rewards_strong.csv", "winrate_strong.csv", "graphs_strong")
     plot_dashboard()
     plot_breakdowns()

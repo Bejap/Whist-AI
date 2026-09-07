@@ -36,7 +36,8 @@ QUEEN_CAPTURE_BONUS = 0.2
 # *relative* ordering of shaping signals (e.g. "smart trump" > "efficient
 # trump" > "won with lead suit").
 # ---------------------------------------------------------------------------
-SHAPING_SCALE = 0.5
+SHAPING_SCALE = float(os.getenv("WHIST_SHAPING_SCALE", "0.5"))
+TEAM_TERMINAL_REWARD = float(os.getenv("WHIST_TEAM_TERMINAL_REWARD", "2.0"))
 
 EFFICIENT_TRUMP_BONUS = 0.4 * SHAPING_SCALE
 SMART_TRUMP_BONUS = 0.5 * SHAPING_SCALE
@@ -579,6 +580,8 @@ class SelfPlayWrapper(gym.Wrapper):
         obs, reward, terminated, truncated, info = self.env.step(action)
 
         if terminated or truncated:
+            outcome = 1.0 if self.env.team_tricks[team] > self.env.team_tricks[1 - team] else -1.0
+            reward += outcome * (TEAM_TERMINAL_REWARD - TERMINAL_WIN_REWARD)
             self._episode_return += float(reward)
             info = dict(info)
             info["episode_return"] = self._episode_return
@@ -618,9 +621,9 @@ class SelfPlayWrapper(gym.Wrapper):
                 # Re-assign the round outcome because the final opponent
                 # action's terminal reward is not useful to the learner.
                 if self.env.team_tricks[team] > self.env.team_tricks[1 - team]:
-                    reward += TERMINAL_WIN_REWARD
+                    reward += TEAM_TERMINAL_REWARD
                 else:
-                    reward += TERMINAL_LOSS_REWARD
+                    reward -= TEAM_TERMINAL_REWARD
                 self._episode_return += float(reward)
                 info = dict(info)
                 info["episode_return"] = self._episode_return

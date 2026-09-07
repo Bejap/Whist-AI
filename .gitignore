@@ -18,18 +18,24 @@ ENV/
 ## Training outputs
 checkpoints/
 checkpoints_multiseat/
+checkpoints_strong/
 train_multiseat.lock
+train_strong.lock
 *_conflicted_*
 graphs/
 graphs_multiseat/
+graphs_strong/
 rewards.csv
 rewards_multiseat.csv
+rewards_strong.csv
 winrate.csv
 winrate_multiseat.csv
+winrate_strong.csv
 benchmarks.csv
 benchmark_games.csv
 benchmarks_multiseat.csv
 benchmark_games_multiseat.csv
+strong_checkpoint_scores.csv
 replays/
 fresh_start.flag
 *.png

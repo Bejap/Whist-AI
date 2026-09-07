@@ -160,6 +160,36 @@ def _rollout_value(env, model, root_player: int, max_steps: int = 52) -> float:
     return team_diff / 13.0
 
 
+def determinize_hidden_hands(env, observing_player: int, rng=None):
+    """Sample plausible hidden hands without exposing the real deal to MCTS.
+
+    Only the observing player's hand and publicly played cards are retained.
+    Remaining cards are randomly assigned to opponents with their current hand
+    sizes. This is an information-set approximation rather than perfect-play
+    search with access to hidden cards.
+    """
+    rng = rng or np.random.default_rng()
+    public_cards = set(
+        np.flatnonzero(np.any(env.played_cards_by_player > 0, axis=0)).tolist()
+    )
+    public_cards.update(card for _, card in env.trick_cards)
+    known_cards = public_cards | set(env.hands[observing_player])
+    unknown_cards = [card for card in range(NUM_CARDS) if card not in known_cards]
+    rng.shuffle(unknown_cards)
+
+    index = 0
+    for player in range(NUM_PLAYERS):
+        if player == observing_player:
+            continue
+        count = len(env.hands[player])
+        env.hands[player] = sorted(unknown_cards[index:index + count])
+        index += count
+
+    if index != len(unknown_cards):
+        raise RuntimeError("Hidden-hand determinization assigned an invalid card count.")
+    return env
+
+
 def mcts_action(env, model, sims: int = 64, c_puct: float = 1.25) -> int:
     """Pick an action with a lightweight PUCT search at the root."""
     root_player = env.current_player
@@ -189,7 +219,7 @@ def mcts_action(env, model, sims: int = 64, c_puct: float = 1.25) -> int:
         scores[mask == 0] = -1e9
         action = int(np.argmax(scores))
 
-        env_sim = copy.deepcopy(env)
+        env_sim = determinize_hidden_hands(copy.deepcopy(env), root_player)
         env_sim.step(action)
         rollout_val = _rollout_value(env_sim, model, root_player)
         estimate = 0.5 * rollout_val + 0.5 * root_value
