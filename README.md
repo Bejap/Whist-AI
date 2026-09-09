@@ -121,6 +121,22 @@ default it saves a checkpoint every 5,000 episodes, a graph every 10,000
 episodes, and logs reward every 250 episodes. Each checkpoint uses a compact
 50-game raw benchmark plus a 4-game hidden-hand MCTS spot check.
 
+### Fast competitive experiment
+
+For a faster strategic experiment, use `train_competitive.py`. It keeps the
+MLP policy and four-seat training, but mixes a real fixed rule player into
+35% of opponent turns. It evaluates 200 complete balanced games at every
+checkpoint and promotes the best rule-player result to
+`checkpoints_competitive/best_rule.pth`.
+
+```powershell
+python train_competitive.py
+```
+
+Its outputs are isolated under `checkpoints_competitive/`,
+`rewards_competitive.csv`, `graphs_competitive/`, and
+`competitive_checkpoint_scores.csv`.
+
 ### GPU usage
 
 By default, training/inference use `WHIST_DEVICE=auto`, which lets SB3/PyTorch

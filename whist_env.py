@@ -536,6 +536,11 @@ class SelfPlayWrapper(gym.Wrapper):
         """Set the policy function used for opponent moves."""
         self.policy_fn = policy_fn
 
+    def _policy_action(self, obs, mask):
+        if getattr(self.policy_fn, "uses_env", False):
+            return self.policy_fn(obs, mask, self.env)
+        return self.policy_fn(obs, mask)
+
     def set_epsilon(self, epsilon: float):
         """Set the epsilon for opponent randomization."""
         self.epsilon = epsilon
@@ -562,7 +567,7 @@ class SelfPlayWrapper(gym.Wrapper):
                 self.epsilon > 0
                 and self.env.np_random.random() < self.epsilon
             ):
-                other_action = self.policy_fn(
+                other_action = self._policy_action(
                     self.env._get_obs(), self.env.action_mask()
                 )
             else:
@@ -599,7 +604,7 @@ class SelfPlayWrapper(gym.Wrapper):
                     other_action = int(self.env.np_random.choice(valid_actions))
                 else:
                     other_obs = self.env._get_obs()
-                    other_action = self.policy_fn(other_obs, mask)
+                    other_action = self._policy_action(other_obs, mask)
             else:
                 # Random policy fallback
                 other_action = int(self.env.np_random.choice(valid_actions))
