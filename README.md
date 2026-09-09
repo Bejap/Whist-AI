@@ -7,6 +7,19 @@ Creating an AI to play whist better than humans
 pip install -r requirements.txt
 ```
 
+## Published models
+
+A small portable model registry is stored in `published_models/` with Git LFS.
+Install Git LFS before cloning or pulling the model files:
+
+```powershell
+git lfs install
+git lfs pull
+```
+
+See `published_models/MODEL_REGISTRY.md` for the available checkpoints. The
+full training directories remain local-only so the repository stays usable.
+
 ## Training
 
 Start a fresh training run (1,000,000 episodes by default):

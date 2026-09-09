@@ -51,6 +51,11 @@ fresh_start.flag
 *.pth
 *.pt
 
+# Published model registry is intentionally tracked with Git LFS
+!published_models/
+!published_models/*.pth
+!published_models/MODEL_REGISTRY.md
+
 ## Jupyter
 .ipynb_checkpoints/
 *.ipynb
