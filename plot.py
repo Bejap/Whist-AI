@@ -14,6 +14,7 @@ REWARDS_CSV = "rewards.csv"
 GRAPH_DIR = "graphs"
 BENCHMARK_CSV = "benchmarks.csv"
 BENCHMARK_DETAILS_CSV = "benchmark_games.csv"
+STRONG_SCORES_CSV = "strong_checkpoint_scores.csv"
 
 
 def _wilson_interval(wins, games, z=1.96):
@@ -141,6 +142,49 @@ def plot_breakdowns(out_dir=GRAPH_DIR):
     print(f"Breakdown graph saved to {path}")
 
 
+def plot_strong_evaluation(csv_path=STRONG_SCORES_CSV, out_dir="graphs_strong"):
+    """Plot strong-run performance against the fixed rule player."""
+    if not os.path.exists(csv_path):
+        print(f"Skipping strong evaluation graph: {csv_path} not found.")
+        return
+
+    scores = pd.read_csv(csv_path)
+    if scores.empty:
+        return
+
+    os.makedirs(out_dir, exist_ok=True)
+    fig, axes = plt.subplots(2, 1, figsize=(12, 9), sharex=True)
+    for mode, group in scores.groupby("mode"):
+        group = group.sort_values("episode")
+        label = "Raw policy" if mode == "raw" else "Hidden-hand MCTS"
+        axes[0].plot(group["episode"], group["win_rate"], marker="o", label=label)
+    axes[0].axhline(0.5, color="gray", linestyle="--", linewidth=1, label="50% parity")
+    axes[0].set_ylim(0, 1)
+    axes[0].set_ylabel("Win rate")
+    axes[0].set_title("Strong Experiment vs Rule Player")
+    axes[0].legend()
+    axes[0].grid(alpha=0.25)
+
+    for mode, group in scores.groupby("mode"):
+        group = group.sort_values("episode")
+        label = "Raw policy" if mode == "raw" else "Hidden-hand MCTS"
+        axes[1].plot(
+            group["episode"], group["avg_trick_difference"],
+            marker="o", label=label,
+        )
+    axes[1].axhline(0, color="gray", linestyle="--", linewidth=1)
+    axes[1].set_xlabel("Training episode")
+    axes[1].set_ylabel("Agent tricks - rule-player tricks")
+    axes[1].legend()
+    axes[1].grid(alpha=0.25)
+
+    fig.tight_layout()
+    path = os.path.join(out_dir, "strong_evaluation.png")
+    fig.savefig(path, dpi=120)
+    plt.close(fig)
+    print(f"Strong evaluation graph saved to {path}")
+
+
 def plot_rewards(csv_path=REWARDS_CSV, out_dir=GRAPH_DIR):
     """Read the full rewards.csv and save a single continuous reward plot."""
     if not os.path.exists(csv_path):
@@ -233,5 +277,6 @@ if __name__ == "__main__":
     plot_winrate()
     plot_legacy_pair("rewards_multiseat.csv", "winrate_multiseat.csv", "graphs_multiseat")
     plot_legacy_pair("rewards_strong.csv", "winrate_strong.csv", "graphs_strong")
+    plot_strong_evaluation()
     plot_dashboard()
     plot_breakdowns()
