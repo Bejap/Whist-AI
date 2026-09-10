@@ -111,6 +111,11 @@ Settlement remains the main reward, so this discourages routinely safe low
 bids without making maximum bidding automatically optimal. Nolo contracts do
 not receive this penalty.
 
+An opening pass, when no bid is yet on the table, receives an immediate
+`-0.50` reward penalty by default. This prevents the policy from treating an
+all-pass auction as a free way to avoid decisions. Passing after another bid
+remains unpenalized. Set `ESMAKKER_OPENING_PASS_PENALTY` to tune the value.
+
 The fixed-partnership Whist training environments are retained as experiments.
 The intended long-term game is Esmakker Whist, implemented separately in
 `esmakker_env.py`. It models bidding, declarer-selected trump, the secret

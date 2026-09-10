@@ -1,5 +1,7 @@
 """Gymnasium adapter for training an Esmakker Whist policy with MaskablePPO."""
 
+import os
+
 import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
@@ -18,6 +20,7 @@ NUM_ACTIONS = PARTNER_START + 4
 PHASES = ("bidding", "choose_trump", "choose_partner", "play")
 OBS_CONTRACTS = BID_ORDER + (PASKRIG,)
 OBS_SIZE = 52 + 52 + 4 + 12 + 5 + 4 + 5 + 4 + 4 + 4
+OPENING_PASS_PENALTY = float(os.getenv("ESMAKKER_OPENING_PASS_PENALTY", "0.5"))
 
 
 class EsmakkerEnv(gym.Env):
@@ -40,6 +43,7 @@ class EsmakkerEnv(gym.Env):
         self.done = False
         self.last_decision = None
         self.last_underbid_penalty = 0.0
+        self.last_opening_pass_penalty = 0.0
 
     def set_opponent_policy(self, opponent_policy):
         self.opponent_policy = opponent_policy
@@ -52,6 +56,7 @@ class EsmakkerEnv(gym.Env):
         self.done = False
         self.last_decision = None
         self.last_underbid_penalty = 0.0
+        self.last_opening_pass_penalty = 0.0
         if self.opponent_policy is not None:
             self.opponent_policy.begin_round(self.np_random)
         self._advance_opponents()
@@ -70,12 +75,13 @@ class EsmakkerEnv(gym.Env):
             invalid_penalty = 0.0
 
         self.last_decision = None
+        self.last_opening_pass_penalty = 0.0
         self._take_action(self.learning_player, action)
         self._advance_opponents()
 
         terminated = self.game.phase == "complete"
         self.done = terminated
-        reward = invalid_penalty
+        reward = invalid_penalty - self.last_opening_pass_penalty
         if terminated:
             reward += self.game.round_settlement.payments[self.learning_player] / 10.0
             self.last_underbid_penalty = self._underbid_penalty()
@@ -118,7 +124,11 @@ class EsmakkerEnv(gym.Env):
                 "high_cards": sum(card % 13 >= 10 for card in hand),
                 "aces": sum(card % 13 == 12 for card in hand),
                 "longest_suit": max(suit_lengths),
+                "opening_pass_penalty": (
+                    OPENING_PASS_PENALTY if action == PASS_ACTION and game.current_bid is None else 0.0
+                ),
             }
+            self.last_opening_pass_penalty = self.last_decision["opening_pass_penalty"]
         if game.phase == "bidding":
             if action == PASS_ACTION:
                 game.pass_bid(player)
@@ -188,6 +198,7 @@ class EsmakkerEnv(gym.Env):
             "tricks_won": list(self.game.tricks_won),
             "last_decision": self.last_decision,
             "underbid_penalty": self.last_underbid_penalty,
+            "opening_pass_penalty": self.last_opening_pass_penalty,
         }
 
     def _underbid_penalty(self):

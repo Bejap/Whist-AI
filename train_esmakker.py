@@ -372,7 +372,7 @@ class EsmakkerMetricsCallback(BaseCallback):
         decision_fields = [
             "episode", "phase", "action", "current_bid_before", "high_cards",
             "aces", "longest_suit", "final_contract", "success",
-            "learning_player_tricks", "settlement",
+            "learning_player_tricks", "settlement", "opening_pass_penalty",
         ]
         results = {str(row["episode"]): row for row in self.rows}
         enriched = []

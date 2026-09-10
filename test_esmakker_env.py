@@ -1,6 +1,7 @@
 import unittest
 
 from esmakker_env import NO_TRUMP, PASKRIG, EsmakkerGame
+from esmakker_rl_env import OPENING_PASS_PENALTY, PASS_ACTION, EsmakkerEnv
 
 
 class PaskrigTests(unittest.TestCase):
@@ -60,6 +61,18 @@ class PaskrigTests(unittest.TestCase):
 
         self.assertEqual(settlement.payments, (4.5, 4.5, -4.0, -5.0))
         self.assertAlmostEqual(sum(settlement.payments), 0.0)
+
+    def test_opening_pass_receives_immediate_penalty(self):
+        env = EsmakkerEnv()
+        env.game = EsmakkerGame(seed=1)
+        env.learning_player = env.game.current_player
+        env.done = False
+
+        _, reward, terminated, _, info = env.step(PASS_ACTION)
+
+        self.assertFalse(terminated)
+        self.assertEqual(info["opening_pass_penalty"], OPENING_PASS_PENALTY)
+        self.assertAlmostEqual(reward, -OPENING_PASS_PENALTY)
 
 
 if __name__ == "__main__":
