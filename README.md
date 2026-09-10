@@ -34,6 +34,18 @@ rule-based opponent is used only while no compatible snapshot exists.
 python train_esmakker.py --timesteps 250000
 ```
 
+To train with CUDA while limiting this process to 30% of the GPU VRAM, keep
+league opponents on the CPU to reduce GPU contention:
+
+```powershell
+python train_esmakker.py --timesteps 250000 --device cuda --opponent-device cpu --gpu-memory-fraction 0.30
+```
+
+The memory fraction limits VRAM reserved by this process; it does not impose a
+hard 30% GPU-compute-utilization limit. Use `--opponent-device cuda` only when
+you want frozen league opponents on the GPU as well. The cap can be changed,
+for example, with `--gpu-memory-fraction 0.20`.
+
 Resume the latest Esmakker checkpoint with:
 
 ```powershell

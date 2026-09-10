@@ -7,6 +7,7 @@ from pathlib import Path
 
 import matplotlib
 import numpy as np
+import torch
 from sb3_contrib import MaskablePPO
 from stable_baselines3.common.callbacks import BaseCallback
 
@@ -512,6 +513,12 @@ def parse_args():
     parser.add_argument("--device", default="auto")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--opponent-device", default="cpu")
+    parser.add_argument(
+        "--gpu-memory-fraction",
+        type=float,
+        default=0.30,
+        help="Maximum fraction of one GPU's VRAM this process may reserve (default: 0.30)",
+    )
     parser.add_argument("--snapshot-every", type=int, default=50_000)
     parser.add_argument("--league-size", type=int, default=10)
     parser.add_argument("--benchmark-every", type=int, default=5_000)
@@ -522,6 +529,16 @@ def parse_args():
 
 def main():
     args = parse_args()
+    if not 0.0 < args.gpu_memory_fraction <= 1.0:
+        raise ValueError("--gpu-memory-fraction must be greater than 0 and at most 1")
+    if torch.cuda.is_available() and (
+        str(args.device).startswith("cuda") or str(args.opponent_device).startswith("cuda")
+    ):
+        torch.cuda.set_per_process_memory_fraction(args.gpu_memory_fraction)
+        print(
+            f"CUDA VRAM cap: {args.gpu_memory_fraction:.0%} "
+            f"({torch.cuda.get_device_name(0)})"
+        )
     CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
     checkpoint = CHECKPOINT_DIR / "latest.zip"
     league = FrozenLeaguePolicy(LEAGUE_DIR, device=args.opponent_device)
