@@ -24,7 +24,7 @@ PLOT_PATH = GRAPH_DIR / "training_progress.png"
 class EsmakkerMetricsCallback(BaseCallback):
     """Persist round outcomes and refresh a compact progress graph."""
 
-    def __init__(self, report_every=25, verbose=0):
+    def __init__(self, report_every=500, verbose=0):
         super().__init__(verbose)
         self.report_every = report_every
         self.rows = []
