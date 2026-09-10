@@ -96,6 +96,13 @@ ordered by frequency; the title gives the exact pass percentage. The matching
 choice. A dominant red `pass` bar means the policy is avoiding auctions;
 growing bars for contracts indicate it is beginning to make commitments.
 
+For outcomes per learner action, use
+`graphs/esmakker/bid_outcomes.csv`. It reports decisions, completed rounds,
+positive-settlement rate, contract-success rate, and average settlement for
+each action. The raw `bidding_decisions.csv` contains every learner decision
+in an auction, not each opponent bid. Its `final_contract` column is the
+winning bid after the complete bidding war.
+
 The policy can choose every legal bid, including `7` through `13`, `Sol`,
 `Ren sol`, `Bordlaegger`, and pass. Its observation includes its hand and the
 current bid. The bid is therefore learned as a decision under uncertainty:

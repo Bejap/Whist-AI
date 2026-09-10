@@ -23,6 +23,7 @@ METRICS_PATH = GRAPH_DIR / "training_metrics.csv"
 DECISIONS_PATH = GRAPH_DIR / "bidding_decisions.csv"
 SUMMARY_PATH = GRAPH_DIR / "bid_summary.csv"
 SUMMARY_PLOT_PATH = GRAPH_DIR / "bid_distribution.png"
+BID_OUTCOME_PATH = GRAPH_DIR / "bid_outcomes.csv"
 PLOT_PATH = GRAPH_DIR / "training_progress.png"
 BENCHMARK_PATH = GRAPH_DIR / "rule_benchmark.csv"
 BENCHMARK_PLOT_PATH = GRAPH_DIR / "rule_benchmark_progress.png"
@@ -406,6 +407,43 @@ class EsmakkerMetricsCallback(BaseCallback):
             writer = csv.DictWriter(handle, fieldnames=["action", "count", "share_percent"])
             writer.writeheader()
             writer.writerows(summary)
+
+        outcome_rows = []
+        for action in bid_counts:
+            action_decisions = [
+                decision for decision in enriched if decision.get("action") == action
+            ]
+            completed = [
+                decision for decision in action_decisions
+                if decision.get("settlement", "") != ""
+            ]
+            payments = [float(decision["settlement"]) for decision in completed]
+            successes = [
+                float(decision["success"]) for decision in completed
+                if decision.get("success", "") != ""
+            ]
+            outcome_rows.append({
+                "action": action,
+                "decisions": len(action_decisions),
+                "completed_rounds": len(completed),
+                "positive_settlement_rate": round(
+                    100 * sum(payment > 0 for payment in payments) / len(payments), 2
+                ) if payments else "",
+                "contract_success_rate": round(
+                    100 * sum(successes) / len(successes), 2
+                ) if successes else "",
+                "average_settlement": round(sum(payments) / len(payments), 4) if payments else "",
+            })
+        outcome_rows.sort(key=lambda row: row["decisions"], reverse=True)
+        with BID_OUTCOME_PATH.open("w", newline="", encoding="utf-8") as handle:
+            fields = [
+                "action", "decisions", "completed_rounds",
+                "positive_settlement_rate", "contract_success_rate",
+                "average_settlement",
+            ]
+            writer = csv.DictWriter(handle, fieldnames=fields)
+            writer.writeheader()
+            writer.writerows(outcome_rows)
 
         if summary:
             labels = [row["action"] for row in reversed(summary)]
