@@ -46,6 +46,19 @@ top panel shows settlement/payment and the bottom panel shows contract
 success. A rising smoothed line is good; compare runs only after the same
 number of completed rounds.
 
+Every learning-player bid is also recorded in
+`graphs/esmakker/bidding_decisions.csv`. It includes the bid, the bid already
+on the table, high-card count, ace count, longest suit, final contract,
+contract success, tricks and settlement. This makes overbidding visible: look
+for high bids with `success=0` and negative `settlement`, especially when the
+hand has few high cards. For a quick PowerShell view:
+
+```powershell
+Import-Csv graphs/esmakker/bidding_decisions.csv |
+	Where-Object { $_.action -notin @('pass', '') -and $_.success -eq '0' } |
+	Select-Object -Last 20
+```
+
 The policy can choose every legal bid, including `7` through `13`, `Sol`,
 `Ren sol`, `Bordlaegger`, and pass. Its observation includes its hand and the
 current bid. The bid is therefore learned as a decision under uncertainty:

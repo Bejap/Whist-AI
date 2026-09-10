@@ -18,6 +18,7 @@ from esmakker_rl_env import EsmakkerEnv
 CHECKPOINT_DIR = Path("checkpoints") / "esmakker"
 GRAPH_DIR = Path("graphs") / "esmakker"
 METRICS_PATH = GRAPH_DIR / "training_metrics.csv"
+DECISIONS_PATH = GRAPH_DIR / "bidding_decisions.csv"
 PLOT_PATH = GRAPH_DIR / "training_progress.png"
 
 
@@ -28,15 +29,22 @@ class EsmakkerMetricsCallback(BaseCallback):
         super().__init__(verbose)
         self.report_every = report_every
         self.rows = []
+        self.decisions = []
 
     def _on_training_start(self):
         GRAPH_DIR.mkdir(parents=True, exist_ok=True)
         if METRICS_PATH.exists():
             with METRICS_PATH.open(newline="", encoding="utf-8") as handle:
                 self.rows = list(csv.DictReader(handle))
+        if DECISIONS_PATH.exists():
+            with DECISIONS_PATH.open(newline="", encoding="utf-8") as handle:
+                self.decisions = list(csv.DictReader(handle))
 
     def _on_step(self):
         for done, info in zip(self.locals["dones"], self.locals["infos"]):
+            decision = info.get("last_decision")
+            if decision is not None:
+                self.decisions.append({**decision, "episode": len(self.rows) + 1})
             settlement = info.get("settlement")
             if not done or settlement is None:
                 continue
@@ -68,6 +76,27 @@ class EsmakkerMetricsCallback(BaseCallback):
             writer = csv.DictWriter(handle, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(self.rows)
+
+        decision_fields = [
+            "episode", "phase", "action", "current_bid_before", "high_cards",
+            "aces", "longest_suit", "final_contract", "success",
+            "learning_player_tricks", "settlement",
+        ]
+        results = {str(row["episode"]): row for row in self.rows}
+        enriched = []
+        for decision in self.decisions:
+            result = results.get(str(decision["episode"]), {})
+            enriched.append({
+                **decision,
+                "final_contract": result.get("contract", ""),
+                "success": result.get("success", ""),
+                "learning_player_tricks": result.get("learning_player_tricks", ""),
+                "settlement": result.get("payment", ""),
+            })
+        with DECISIONS_PATH.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=decision_fields)
+            writer.writeheader()
+            writer.writerows(enriched)
 
         recent = self.rows[-100:]
         episodes = np.arange(len(self.rows) - len(recent) + 1, len(self.rows) + 1)

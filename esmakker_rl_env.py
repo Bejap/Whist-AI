@@ -36,6 +36,7 @@ class EsmakkerEnv(gym.Env):
         self.game = EsmakkerGame()
         self.learning_player = 0
         self.done = False
+        self.last_decision = None
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -43,6 +44,7 @@ class EsmakkerEnv(gym.Env):
         self.game = EsmakkerGame(seed=game_seed)
         self.learning_player = int(self.np_random.integers(NUM_PLAYERS))
         self.done = False
+        self.last_decision = None
         self._advance_opponents()
         return self._observation(), self._info()
 
@@ -58,6 +60,7 @@ class EsmakkerEnv(gym.Env):
         else:
             invalid_penalty = 0.0
 
+        self.last_decision = None
         self._take_action(self.learning_player, action)
         self._advance_opponents()
 
@@ -91,6 +94,17 @@ class EsmakkerEnv(gym.Env):
 
     def _take_action(self, player, action):
         game = self.game
+        if player == self.learning_player and game.phase == "bidding":
+            hand = game.hands[player]
+            suit_lengths = [sum(card // 13 == suit for card in hand) for suit in range(4)]
+            self.last_decision = {
+                "phase": "bidding",
+                "action": "pass" if action == PASS_ACTION else BID_ORDER[action - BID_START],
+                "current_bid_before": game.current_bid or "none",
+                "high_cards": sum(card % 13 >= 10 for card in hand),
+                "aces": sum(card % 13 == 12 for card in hand),
+                "longest_suit": max(suit_lengths),
+            }
         if game.phase == "bidding":
             if action == PASS_ACTION:
                 game.pass_bid(player)
@@ -164,6 +178,7 @@ class EsmakkerEnv(gym.Env):
             "settlement": self.game.round_settlement,
             "contract": self.game.current_bid,
             "tricks_won": list(self.game.tricks_won),
+            "last_decision": self.last_decision,
         }
 
     def _hand_strength(self, player):
