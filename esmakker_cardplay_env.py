@@ -89,7 +89,8 @@ class EsmakkerCardPlayEnv(gym.Env):
             self.game.play_card(player, max(legal, key=lambda card: card % 13))
 
     def _team_tricks(self):
-        return self.game.tricks_won[self.learning_player] + self.game.tricks_won[self.game.partner_player]
+        team = {self.learning_player, self.game.partner_player}
+        return sum(self.game.tricks_won[player] for player in team)
 
     def _observation(self):
         observation = np.zeros(OBS_SIZE, dtype=np.float32)

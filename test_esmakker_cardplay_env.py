@@ -28,6 +28,20 @@ class EsmakkerCardPlayTests(unittest.TestCase):
         self.assertIsNotNone(info["settlement"])
         self.assertEqual(sum(info["tricks_won"]), 13)
 
+    def test_team_tricks_does_not_double_count_declarer_partner(self):
+        env = EsmakkerCardPlayEnv(contract="7")
+        matching_seed = next(
+            seed
+            for seed in range(100)
+            if (env.reset(seed=seed)[1]["declarer"] == env.game.partner_player)
+        )
+        env.reset(seed=matching_seed)
+        env.game.tricks_won = [1, 2, 3, 4]
+
+        expected = env.game.tricks_won[env.learning_player]
+        self.assertEqual(env._team_tricks(), expected)
+        self.assertLessEqual(env._team_tricks(), 13)
+
 
 if __name__ == "__main__":
     unittest.main()
