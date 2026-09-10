@@ -20,6 +20,14 @@ git lfs pull
 See `published_models/MODEL_REGISTRY.md` for the available checkpoints. The
 full training directories remain local-only so the repository stays usable.
 
+## Esmakker Whist
+
+The fixed-partnership Whist training environments are retained as experiments.
+The intended long-term game is Esmakker Whist, implemented separately in
+`esmakker_env.py`. It models bidding, declarer-selected trump, the secret
+partner ace or king, nolo contracts, dealer rotation, and settlement. See
+`esmakker_rules.md` for the exact implemented rules.
+
 ## Training
 
 Start a fresh training run (1,000,000 episodes by default):
