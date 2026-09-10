@@ -164,6 +164,21 @@ play (10%). It does not modify competitive checkpoints. Results go to
 `checkpoints_post_selfplay/`, `graphs_post_selfplay/`, and
 `post_selfplay_checkpoint_scores.csv`.
 
+### Anchor self-play experiment
+
+The more controlled follow-up keeps the best competitive model as a fixed
+anchor. It mixes 45% anchor policy, 25% league policies, 20% rule-player
+turns, and 10% random legal turns. Every checkpoint is evaluated against both
+the rule player and the fixed anchor:
+
+```powershell
+python train_anchor_selfplay.py
+```
+
+It starts from `checkpoints_competitive/best_rule.pth` and writes only to
+`checkpoints_anchor_selfplay/`, `graphs_anchor_selfplay/`, and
+`anchor_selfplay_checkpoint_scores.csv`.
+
 ### GPU usage
 
 By default, training/inference use `WHIST_DEVICE=auto`, which lets SB3/PyTorch

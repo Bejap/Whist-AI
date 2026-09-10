@@ -21,6 +21,7 @@ checkpoints_multiseat/
 checkpoints_strong/
 checkpoints_competitive/
 checkpoints_post_selfplay/
+checkpoints_anchor_selfplay/
 train_multiseat.lock
 train_strong.lock
 *_conflicted_*
@@ -33,6 +34,7 @@ rewards_multiseat.csv
 rewards_strong.csv
 rewards_competitive.csv
 rewards_post_selfplay.csv
+rewards_anchor_selfplay.csv
 winrate.csv
 winrate_multiseat.csv
 winrate_strong.csv
@@ -47,6 +49,8 @@ benchmark_games_*_large.csv
 strong_checkpoint_scores.csv
 competitive_checkpoint_scores.csv
 post_selfplay_checkpoint_scores.csv
+anchor_selfplay_checkpoint_scores.csv
+train_anchor_selfplay.lock
 train_post_selfplay.lock
 train_competitive.lock
 replays/
