@@ -1,14 +1,94 @@
 """Train an Esmakker Whist policy against rule-based opponents."""
 
 import argparse
+import csv
 from pathlib import Path
 
+import matplotlib
+import numpy as np
 from sb3_contrib import MaskablePPO
+from stable_baselines3.common.callbacks import BaseCallback
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 from esmakker_rl_env import EsmakkerEnv
 
 
 CHECKPOINT_DIR = Path("checkpoints") / "esmakker"
+GRAPH_DIR = Path("graphs") / "esmakker"
+METRICS_PATH = GRAPH_DIR / "training_metrics.csv"
+PLOT_PATH = GRAPH_DIR / "training_progress.png"
+
+
+class EsmakkerMetricsCallback(BaseCallback):
+    """Persist round outcomes and refresh a compact progress graph."""
+
+    def __init__(self, report_every=25, verbose=0):
+        super().__init__(verbose)
+        self.report_every = report_every
+        self.rows = []
+
+    def _on_training_start(self):
+        GRAPH_DIR.mkdir(parents=True, exist_ok=True)
+        if METRICS_PATH.exists():
+            with METRICS_PATH.open(newline="", encoding="utf-8") as handle:
+                self.rows = list(csv.DictReader(handle))
+
+    def _on_step(self):
+        for done, info in zip(self.locals["dones"], self.locals["infos"]):
+            settlement = info.get("settlement")
+            if not done or settlement is None:
+                continue
+            tricks = info.get("tricks_won", [0, 0, 0, 0])
+            player = int(info.get("learning_player", 0))
+            payment = settlement.payments[player]
+            self.rows.append({
+                "episode": len(self.rows) + 1,
+                "timesteps": self.num_timesteps,
+                "contract": info.get("contract") or "none",
+                "success": int(settlement.contract_succeeded),
+                "payment": payment,
+                "learning_player_tricks": tricks[player],
+                "value": settlement.value,
+            })
+        if self.rows and len(self.rows) % self.report_every == 0:
+            self._write_metrics()
+        return True
+
+    def _on_training_end(self):
+        self._write_metrics()
+
+    def _write_metrics(self):
+        fieldnames = [
+            "episode", "timesteps", "contract", "success", "payment",
+            "learning_player_tricks", "value",
+        ]
+        with METRICS_PATH.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(self.rows)
+
+        recent = self.rows[-100:]
+        episodes = np.arange(len(self.rows) - len(recent) + 1, len(self.rows) + 1)
+        payments = np.asarray([float(row["payment"]) for row in recent])
+        success = np.asarray([float(row["success"]) for row in recent])
+        fig, axes = plt.subplots(2, 1, figsize=(10, 7), sharex=True)
+        axes[0].plot(episodes, payments, alpha=0.25, color="tab:blue")
+        if len(payments) >= 10:
+            axes[0].plot(episodes[9:], np.convolve(payments, np.ones(10) / 10, mode="valid"), color="tab:blue")
+        axes[0].axhline(0, color="black", linewidth=0.8)
+        axes[0].set_ylabel("Payment / settlement")
+        axes[0].set_title("Esmakker training: latest 100 rounds")
+        axes[1].plot(episodes, success, alpha=0.25, color="tab:green")
+        if len(success) >= 10:
+            axes[1].plot(episodes[9:], np.convolve(success, np.ones(10) / 10, mode="valid"), color="tab:green")
+        axes[1].set_ylabel("Contract success")
+        axes[1].set_xlabel("Completed rounds")
+        axes[1].set_ylim(-0.05, 1.05)
+        fig.tight_layout()
+        fig.savefig(PLOT_PATH, dpi=140)
+        plt.close(fig)
 
 
 def parse_args():
@@ -43,7 +123,12 @@ def main():
             verbose=1,
         )
 
-    model.learn(total_timesteps=args.timesteps, reset_num_timesteps=not args.resume)
+    callback = EsmakkerMetricsCallback()
+    model.learn(
+        total_timesteps=args.timesteps,
+        reset_num_timesteps=not args.resume,
+        callback=callback,
+    )
     model.save(CHECKPOINT_DIR / "latest")
     print(f"Saved {checkpoint}")
 

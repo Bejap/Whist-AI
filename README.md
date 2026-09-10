@@ -39,6 +39,22 @@ python train_esmakker.py --resume --timesteps 250000
 
 Checkpoints are saved to `checkpoints/esmakker/latest.zip`.
 
+During training, completed rounds are recorded in
+`graphs/esmakker/training_metrics.csv`, and the latest-100-round progress
+graph is refreshed at `graphs/esmakker/training_progress.png`. The graph's
+top panel shows settlement/payment and the bottom panel shows contract
+success. A rising smoothed line is good; compare runs only after the same
+number of completed rounds.
+
+The policy can choose every legal bid, including `7` through `13`, `Sol`,
+`Ren sol`, `Bordlaegger`, and pass. Its observation includes its hand and the
+current bid. The bid is therefore learned as a decision under uncertainty:
+the policy is rewarded or penalized by the final contract settlement. It is
+not given a hand-written meaning for a bid, and it does not learn the Danish
+word itself; it learns that a bid commits it to a trick target or nolo limit
+with a corresponding risk and reward. The implemented meanings are listed in
+`esmakker_rules.md`.
+
 The fixed-partnership Whist training environments are retained as experiments.
 The intended long-term game is Esmakker Whist, implemented separately in
 `esmakker_env.py`. It models bidding, declarer-selected trump, the secret

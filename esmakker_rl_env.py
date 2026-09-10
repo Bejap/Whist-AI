@@ -4,7 +4,7 @@ import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
 
-from esmakker_env import BID_ORDER, EsmakkerGame, NOLO_BIDS
+from esmakker_env import BID_ORDER, EsmakkerGame
 from whist_env import NUM_CARDS, NUM_PLAYERS
 
 
@@ -162,6 +162,8 @@ class EsmakkerEnv(gym.Env):
             "learning_player": self.learning_player,
             "action_mask": self.action_masks(),
             "settlement": self.game.round_settlement,
+            "contract": self.game.current_bid,
+            "tricks_won": list(self.game.tricks_won),
         }
 
     def _hand_strength(self, player):
