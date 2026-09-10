@@ -174,6 +174,7 @@ class RuleBenchmarkCallback(BaseCallback):
             settlement = info["settlement"]
             player = int(info["learning_player"])
             completed = int(terminated and settlement is not None)
+            payment = settlement.payments[player] if completed else 0
             results.append({
                 "timesteps": benchmark_step,
                 "mode": mode,
@@ -181,27 +182,31 @@ class RuleBenchmarkCallback(BaseCallback):
                 "seat": player,
                 "contract": info["contract"] or "none",
                 "completed": completed,
+                "won": int(payment > 0),
                 "success": int(settlement.contract_succeeded) if completed else 0,
-                "payment": settlement.payments[player] if completed else 0,
+                "payment": payment,
                 "tricks": info["tricks_won"][player] if completed else 0,
             })
         self.rows.extend(results)
         self._write_results()
         completed = [row for row in results if row["completed"]]
         summary = np.asarray([float(row["payment"]) for row in completed])
-        success = np.asarray([float(row["success"]) for row in completed])
+        wins = np.asarray([float(row["won"]) for row in completed])
         if not completed:
             summary = np.asarray([0.0])
-            success = np.asarray([0.0])
+            wins = np.asarray([0.0])
         print(
             f"Rule benchmark {benchmark_step}: {self.games} games | "
             f"{mode} | "
             f"completed {len(completed)}/{self.games} | "
-            f"success {success.mean():.1%} | payment {summary.mean():+.2f}"
+            f"wins {wins.mean():.1%} | payment {summary.mean():+.2f}"
         )
 
     def _write_results(self):
-        fields = ["timesteps", "mode", "game", "seat", "contract", "completed", "success", "payment", "tricks"]
+        fields = ["timesteps", "mode", "game", "seat", "contract", "completed", "won", "success", "payment", "tricks"]
+        for row in self.rows:
+            row.setdefault("mode", "fixed_rule")
+            row.setdefault("won", int(float(row.get("payment", 0)) > 0))
         with BENCHMARK_PATH.open("w", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(handle, fieldnames=fields)
             writer.writeheader()
@@ -217,7 +222,7 @@ class RuleBenchmarkCallback(BaseCallback):
             data.append({
                 "timesteps": int(timestep),
                 "completion": len(rows) / len(all_rows),
-                "success": np.mean([float(row["success"]) for row in rows]) if rows else np.nan,
+                "wins": np.mean([float(row["won"]) for row in rows]) if rows else np.nan,
                 "payment": np.mean([float(row["payment"]) for row in rows]) if rows else np.nan,
                 "by_seat": {
                     seat: [row for row in all_rows if str(row["completed"]) == "1" and row["seat"] != "" and int(row["seat"]) == seat]
@@ -233,7 +238,7 @@ class RuleBenchmarkCallback(BaseCallback):
                 auction_data.append({
                     "timesteps": int(timestep),
                     "completion": len(auction_completed) / len(auction_rows),
-                    "success": np.mean([float(row["success"]) for row in auction_completed]) if auction_completed else np.nan,
+                    "wins": np.mean([float(row["won"]) for row in auction_completed]) if auction_completed else np.nan,
                     "payment": np.mean([float(row["payment"]) for row in auction_completed]) if auction_completed else np.nan,
                 })
         if not data:
@@ -263,21 +268,21 @@ class RuleBenchmarkCallback(BaseCallback):
         axes[0].set_ylim(-0.05, 1.05)
         axes[0].set_title("Esmakker learner vs fixed rule opponents")
         axes[0].legend(ncol=3, fontsize="small")
-        axes[1].plot(steps, [row["success"] for row in data], marker="o", linewidth=2, color="black", label="overall")
+        axes[1].plot(steps, [row["wins"] for row in data], marker="o", linewidth=2, color="black", label="overall")
         for seat, color in enumerate(("tab:blue", "tab:orange", "tab:green", "tab:red")):
             values = [
-                np.mean([float(item["success"]) for item in row["by_seat"][seat]]) if row["by_seat"][seat] else np.nan
+                np.mean([float(item["won"]) for item in row["by_seat"][seat]]) if row["by_seat"][seat] else np.nan
                 for row in data
             ]
             axes[1].plot(steps, values, alpha=0.7, color=color, label=f"seat {seat + 1}")
         if auction_data:
             axes[1].plot(
                 [row["timesteps"] for row in auction_data],
-                [row["success"] for row in auction_data],
+                [row["wins"] for row in auction_data],
                 color="tab:purple", linestyle="--", marker="s",
             )
         axes[1].axhline(0.5, color="black", linewidth=0.8, linestyle="--")
-        axes[1].set_ylabel("Contract success")
+        axes[1].set_ylabel("Positive-settlement win rate")
         axes[1].set_ylim(-0.05, 1.05)
         axes[2].plot(steps, [row["payment"] for row in data], marker="o", linewidth=2, color="black", label="overall")
         for seat, color in enumerate(("tab:blue", "tab:orange", "tab:green", "tab:red")):

@@ -7,9 +7,10 @@ This document describes the Esmakker variant used by `esmakker_env.py`.
 1. A dealer is selected. The first round uses a random dealer.
 2. Bidding starts with the player left of the dealer and proceeds clockwise.
 3. A player may bid any contract higher than the current bid or pass. Passing is final for that round.
-4. The highest bidder is declarer. Declarer names trump for numeric contracts, then names a partner suit different from trump.
-5. Thirteen tricks are played. The winner of a trick leads the next trick.
-6. The dealer moves clockwise after a numeric contract. The same dealer deals again after a nolo contract.
+4. If all four players pass, the same deal automatically becomes Paskrig.
+5. The highest bidder is declarer. Declarer names trump for numeric contracts, then names a partner suit different from trump.
+6. Thirteen tricks are played. The winner of a trick leads the next trick.
+7. The dealer moves clockwise after a numeric or Paskrig round. The same dealer deals again after a nolo contract.
 
 ## Contracts
 
@@ -21,6 +22,32 @@ This document describes the Esmakker variant used by `esmakker_env.py`.
 | Bordlægger | Nolo | Declarer alone must win zero tricks; declarer's hand is visible to opponents. |
 
 The bid order is `7, 8, Sol, 9, 10, Ren sol, 11, 12, Bordlægger, 13`.
+
+## Paskrig
+
+Paskrig is a four-player free-for-all with no declarer, partnership, partner
+card or trump suit. Ace is low only in Paskrig, so the rank order is
+`Ace, 2, 3, ..., Queen, King`. The highest card in the led suit wins the
+trick, and that player leads the next trick. Each player tries to take as few
+tricks as possible.
+
+The player or players with the fewest tricks win. Each other player pays the
+difference between their trick count and the winning trick count into one
+combined pot. Tied winners split that pot equally; fractional kroner are
+preserved rather than rounded, which keeps settlement exactly zero-sum.
+
+Example: `[1, 4, 4, 4]` settles as `[+9, -3, -3, -3]`. A tie such as
+`[1, 1, 5, 6]` settles as `[+4.5, +4.5, -4, -5]`.
+
+`PASKRIG_TRIGGER` defaults to `auto_on_all_pass`. The alternate
+`callable_bid` value enables direct calls to `game.bid(player, "paskrig")`.
+
+### Engine assumptions
+
+Normal tricks are ace-high; `_rank()` explicitly switches to ace-low for
+Paskrig. Numeric settlement assumes a declarer partnership and nolo settlement
+assumes one declarer against three opponents; `settle()` handles Paskrig first
+as a separate free-for-all branch so neither assumption leaks into its payout.
 
 ## Partner card
 

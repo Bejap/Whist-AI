@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 
 import numpy as np
 
-from esmakker_env import BID_ORDER, EsmakkerGame, NOLO_BIDS
+from esmakker_env import BID_ORDER, PASKRIG, EsmakkerGame, NOLO_BIDS
 from whist_env import RANKS, SUITS, card_name
 
 HOST = os.getenv("ESMAKKER_WEB_HOST", "127.0.0.1")
@@ -63,7 +63,10 @@ class EsmakkerWebGame:
         if self.game.phase == "choose_trump":
             self.message = "You won the bidding. Choose trump."
         elif self.game.phase == "play":
-            self.message = "Nolo contract. Your turn to play."
+            if self.game.current_bid == PASKRIG:
+                self.message = "Everyone passed: Paskrig. Take as few tricks as possible."
+            else:
+                self.message = "Nolo contract. Your turn to play."
         elif self.game.phase == "bidding":
             self.message = "Your turn to bid or pass."
 

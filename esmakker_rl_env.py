@@ -4,7 +4,7 @@ import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
 
-from esmakker_env import BID_ORDER, NUMERIC_BIDS, EsmakkerGame
+from esmakker_env import BID_ORDER, NUMERIC_BIDS, PASKRIG, EsmakkerGame
 from whist_env import NUM_CARDS, NUM_PLAYERS
 
 
@@ -16,7 +16,8 @@ PARTNER_START = TRUMP_START + 4
 NUM_ACTIONS = PARTNER_START + 4
 
 PHASES = ("bidding", "choose_trump", "choose_partner", "play")
-OBS_SIZE = 52 + 52 + 4 + 11 + 5 + 4 + 5 + 4 + 4 + 4
+OBS_CONTRACTS = BID_ORDER + (PASKRIG,)
+OBS_SIZE = 52 + 52 + 4 + 12 + 5 + 4 + 5 + 4 + 4 + 4
 
 
 class EsmakkerEnv(gym.Env):
@@ -160,8 +161,8 @@ class EsmakkerEnv(gym.Env):
         if game.phase in PHASES:
             observation[index + PHASES.index(game.phase)] = 1.0
         index += 4
-        observation[index + (BID_ORDER.index(game.current_bid) + 1 if game.current_bid else 0)] = 1.0
-        index += 11
+        observation[index + (OBS_CONTRACTS.index(game.current_bid) + 1 if game.current_bid else 0)] = 1.0
+        index += 12
         observation[index + game.trump_suit] = 1.0
         index += 5
         observation[index + player] = 1.0

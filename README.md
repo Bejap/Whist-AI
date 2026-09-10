@@ -42,6 +42,10 @@ python train_esmakker.py --resume --timesteps 250000
 
 Checkpoints are saved to `checkpoints/esmakker/latest.zip`.
 
+Paskrig adds a contract-state feature to the policy observation. Esmakker
+checkpoints created before Paskrig are incompatible; start a fresh Esmakker
+training run after deleting `checkpoints/esmakker/` and `graphs/esmakker/`.
+
 Self-play snapshots are saved every 50,000 timesteps under
 `checkpoints/esmakker/league/`; the newest 10 are retained. A snapshot is
 selected once per round so opponents remain consistent during that auction

@@ -5,6 +5,7 @@ future learning environment can model each decision type without changing game
 rules.
 """
 
+import os
 from dataclasses import dataclass
 from typing import Optional
 
@@ -19,13 +20,17 @@ BID_ORDER = ("7", "8", "sol", "9", "10", "ren_sol", "11", "12", "bordlaegger", "
 NUMERIC_BIDS = {str(number): number for number in range(7, 14)}
 NOLO_BIDS = {"sol", "ren_sol", "bordlaegger"}
 NOLO_VALUES = {"sol": 2, "ren_sol": 4, "bordlaegger": 8}
+PASKRIG = "paskrig"
+PASKRIG_TRIGGER = os.getenv("PASKRIG_TRIGGER", "auto_on_all_pass")
+if PASKRIG_TRIGGER not in {"auto_on_all_pass", "callable_bid"}:
+    raise ValueError("PASKRIG_TRIGGER must be 'auto_on_all_pass' or 'callable_bid'.")
 
 
 @dataclass(frozen=True)
 class Settlement:
     contract_succeeded: bool
-    value: int
-    payments: tuple[int, int, int, int]
+    value: float
+    payments: tuple[float, float, float, float]
 
 
 class EsmakkerGame:
@@ -62,6 +67,11 @@ class EsmakkerGame:
         self._require_current_player(player)
         if player not in self.active_bidders:
             raise ValueError("A player who passed may not bid again.")
+        if contract == PASKRIG and PASKRIG_TRIGGER == "callable_bid":
+            self.current_bid = PASKRIG
+            self.declarer = None
+            self._begin_paskrig()
+            return self.public_state()
         if contract not in BID_ORDER:
             raise ValueError(f"Unknown contract: {contract}")
         if self.current_bid is not None and BID_ORDER.index(contract) <= BID_ORDER.index(self.current_bid):
@@ -77,6 +87,9 @@ class EsmakkerGame:
         self.active_bidders.discard(player)
         if not self.active_bidders:
             if self.current_bid is None:
+                if PASKRIG_TRIGGER == "auto_on_all_pass":
+                    self._begin_paskrig()
+                    return self.public_state()
                 self._advance_dealer(nolo=False)
                 return self.reset_round()
             self._begin_declaration()
@@ -161,6 +174,16 @@ class EsmakkerGame:
         return winner
 
     def settle(self):
+        if self.current_bid == PASKRIG:
+            fewest = min(self.tricks_won)
+            winners = [player for player, tricks in enumerate(self.tricks_won) if tricks == fewest]
+            payments = [float(-(tricks - fewest)) for tricks in self.tricks_won]
+            pot = -sum(payments)
+            share = pot / len(winners)
+            for winner in winners:
+                payments[winner] = share
+            return Settlement(True, pot, tuple(payments))
+
         declarer_tricks = self.tricks_won[self.declarer]
         if self.current_bid in NOLO_BIDS:
             limit = 1 if self.current_bid == "sol" else 0
@@ -223,6 +246,15 @@ class EsmakkerGame:
         else:
             self.phase = "choose_trump"
 
+    def _begin_paskrig(self):
+        self.current_bid = PASKRIG
+        self.declarer = None
+        self.trump_suit = NO_TRUMP
+        self.partner_suit = None
+        self.partner_card = None
+        self.partner_player = None
+        self._start_tricks()
+
     def _start_tricks(self):
         self.phase = "play"
         self.current_player = (self.dealer + 1) % NUM_PLAYERS
@@ -255,6 +287,8 @@ class EsmakkerGame:
 
     def _rank(self, card: int):
         suit, rank = card // 13, card % 13
+        if self.current_bid == PASKRIG:
+            return -1 if rank == RANK_ACE else rank
         if suit == self.special_low_ace_suit and rank == RANK_ACE:
             return -1
         return rank
