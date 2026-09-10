@@ -89,6 +89,13 @@ Import-Csv graphs/esmakker/bidding_decisions.csv |
 	Select-Object -Last 20
 ```
 
+For a direct view of what the learner prefers to bid, open
+`graphs/esmakker/bid_distribution.png`. It shows every learner bid and pass
+ordered by frequency; the title gives the exact pass percentage. The matching
+`graphs/esmakker/bid_summary.csv` contains the count and percentage for each
+choice. A dominant red `pass` bar means the policy is avoiding auctions;
+growing bars for contracts indicate it is beginning to make commitments.
+
 The policy can choose every legal bid, including `7` through `13`, `Sol`,
 `Ren sol`, `Bordlaegger`, and pass. Its observation includes its hand and the
 current bid. The bid is therefore learned as a decision under uncertainty:

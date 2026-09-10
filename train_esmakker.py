@@ -2,6 +2,7 @@
 
 import argparse
 import csv
+from collections import Counter
 from pathlib import Path
 
 import matplotlib
@@ -20,6 +21,8 @@ LEAGUE_DIR = CHECKPOINT_DIR / "league"
 GRAPH_DIR = Path("graphs") / "esmakker"
 METRICS_PATH = GRAPH_DIR / "training_metrics.csv"
 DECISIONS_PATH = GRAPH_DIR / "bidding_decisions.csv"
+SUMMARY_PATH = GRAPH_DIR / "bid_summary.csv"
+SUMMARY_PLOT_PATH = GRAPH_DIR / "bid_distribution.png"
 PLOT_PATH = GRAPH_DIR / "training_progress.png"
 BENCHMARK_PATH = GRAPH_DIR / "rule_benchmark.csv"
 BENCHMARK_PLOT_PATH = GRAPH_DIR / "rule_benchmark_progress.png"
@@ -386,6 +389,37 @@ class EsmakkerMetricsCallback(BaseCallback):
             writer = csv.DictWriter(handle, fieldnames=decision_fields)
             writer.writeheader()
             writer.writerows(enriched)
+
+        bid_counts = Counter(
+            row["action"] for row in self.decisions if row.get("phase") == "bidding"
+        )
+        total_bids = sum(bid_counts.values())
+        summary = [
+            {
+                "action": action,
+                "count": count,
+                "share_percent": round(100 * count / total_bids, 2) if total_bids else 0.0,
+            }
+            for action, count in bid_counts.most_common()
+        ]
+        with SUMMARY_PATH.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=["action", "count", "share_percent"])
+            writer.writeheader()
+            writer.writerows(summary)
+
+        if summary:
+            labels = [row["action"] for row in reversed(summary)]
+            counts = [row["count"] for row in reversed(summary)]
+            pass_rate = 100 * bid_counts["pass"] / total_bids
+            fig, axis = plt.subplots(figsize=(9, max(3, 0.45 * len(labels) + 1)))
+            axis.barh(labels, counts, color=["tab:red" if label == "pass" else "tab:blue" for label in labels])
+            axis.set_xlabel("Number of learner bidding decisions")
+            axis.set_title(f"Esmakker bid choices: pass {pass_rate:.1f}% ({total_bids} decisions)")
+            for index, count in enumerate(counts):
+                axis.text(count, index, f"  {count}", va="center")
+            fig.tight_layout()
+            fig.savefig(SUMMARY_PLOT_PATH, dpi=140)
+            plt.close(fig)
 
         recent = self.rows[-100:]
         episodes = np.arange(len(self.rows) - len(recent) + 1, len(self.rows) + 1)
