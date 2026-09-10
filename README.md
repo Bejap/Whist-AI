@@ -68,6 +68,12 @@ word itself; it learns that a bid commits it to a trick target or nolo limit
 with a corresponding risk and reward. The implemented meanings are listed in
 `esmakker_rules.md`.
 
+For numeric contracts, the terminal reward also includes a small bounded
+underbid penalty when the declarer's team takes more tricks than it bid for.
+Settlement remains the main reward, so this discourages routinely safe low
+bids without making maximum bidding automatically optimal. Nolo contracts do
+not receive this penalty.
+
 The fixed-partnership Whist training environments are retained as experiments.
 The intended long-term game is Esmakker Whist, implemented separately in
 `esmakker_env.py`. It models bidding, declarer-selected trump, the secret

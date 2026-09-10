@@ -51,6 +51,8 @@ class EsmakkerMetricsCallback(BaseCallback):
             tricks = info.get("tricks_won", [0, 0, 0, 0])
             player = int(info.get("learning_player", 0))
             payment = settlement.payments[player]
+            if payment is None:
+                continue
             self.rows.append({
                 "episode": len(self.rows) + 1,
                 "timesteps": self.num_timesteps,
@@ -59,6 +61,7 @@ class EsmakkerMetricsCallback(BaseCallback):
                 "payment": payment,
                 "learning_player_tricks": tricks[player],
                 "value": settlement.value,
+                "underbid_penalty": info.get("underbid_penalty", 0.0),
             })
         if self.rows and len(self.rows) % self.report_every == 0:
             self._write_metrics()
@@ -71,7 +74,10 @@ class EsmakkerMetricsCallback(BaseCallback):
         fieldnames = [
             "episode", "timesteps", "contract", "success", "payment",
             "learning_player_tricks", "value",
+            "underbid_penalty",
         ]
+        for row in self.rows:
+            row.setdefault("underbid_penalty", 0.0)
         with METRICS_PATH.open("w", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(handle, fieldnames=fieldnames)
             writer.writeheader()

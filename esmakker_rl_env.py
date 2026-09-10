@@ -4,7 +4,7 @@ import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
 
-from esmakker_env import BID_ORDER, EsmakkerGame
+from esmakker_env import BID_ORDER, NUMERIC_BIDS, EsmakkerGame
 from whist_env import NUM_CARDS, NUM_PLAYERS
 
 
@@ -37,6 +37,7 @@ class EsmakkerEnv(gym.Env):
         self.learning_player = 0
         self.done = False
         self.last_decision = None
+        self.last_underbid_penalty = 0.0
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -45,6 +46,7 @@ class EsmakkerEnv(gym.Env):
         self.learning_player = int(self.np_random.integers(NUM_PLAYERS))
         self.done = False
         self.last_decision = None
+        self.last_underbid_penalty = 0.0
         self._advance_opponents()
         return self._observation(), self._info()
 
@@ -69,6 +71,8 @@ class EsmakkerEnv(gym.Env):
         reward = invalid_penalty
         if terminated:
             reward += self.game.round_settlement.payments[self.learning_player] / 10.0
+            self.last_underbid_penalty = self._underbid_penalty()
+            reward -= self.last_underbid_penalty
         return self._observation(), reward, terminated, False, self._info()
 
     def action_masks(self):
@@ -179,7 +183,16 @@ class EsmakkerEnv(gym.Env):
             "contract": self.game.current_bid,
             "tricks_won": list(self.game.tricks_won),
             "last_decision": self.last_decision,
+            "underbid_penalty": self.last_underbid_penalty,
         }
+
+    def _underbid_penalty(self):
+        if self.game.declarer != self.learning_player or self.game.current_bid not in NUMERIC_BIDS:
+            return 0.0
+        team = {self.game.declarer, self.game.partner_player}
+        team_tricks = sum(self.game.tricks_won[player] for player in team)
+        missed_value = max(0, team_tricks - NUMERIC_BIDS[self.game.current_bid])
+        return 0.05 * missed_value
 
     def _hand_strength(self, player):
         return sum(card % 13 >= 10 for card in self.game.hands[player])
