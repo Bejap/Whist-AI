@@ -28,6 +28,20 @@ The intended long-term game is Esmakker Whist, implemented separately in
 partner ace or king, nolo contracts, dealer rotation, and settlement. See
 `esmakker_rules.md` for the exact implemented rules.
 
+### Esmakker browser demo
+
+Run the first interactive Esmakker table with:
+
+```powershell
+python esmakker_web.py
+```
+
+Open `http://127.0.0.1:8001`. This prototype makes you declarer on a 9
+contract, lets you choose trump and partner suit, and lets you play cards by
+clicking them. The other seats currently use random legal play; actions are
+kept in the in-memory game history as the foundation for human-game logging
+and later imitation learning.
+
 ## Training
 
 Start a fresh training run (1,000,000 episodes by default):
