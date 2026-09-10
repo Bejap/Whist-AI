@@ -21,6 +21,8 @@ GRAPH_DIR = Path("graphs") / "esmakker"
 METRICS_PATH = GRAPH_DIR / "training_metrics.csv"
 DECISIONS_PATH = GRAPH_DIR / "bidding_decisions.csv"
 PLOT_PATH = GRAPH_DIR / "training_progress.png"
+BENCHMARK_PATH = GRAPH_DIR / "rule_benchmark.csv"
+BENCHMARK_PLOT_PATH = GRAPH_DIR / "rule_benchmark_progress.png"
 
 
 class FrozenLeaguePolicy:
@@ -101,6 +103,145 @@ class LeagueSnapshotCallback(BaseCallback):
             old_path.unlink()
         self.league.refresh()
         print(f"League snapshot saved: {path}")
+
+
+class RuleBenchmarkCallback(BaseCallback):
+    """Measure the learner against fixed rule opponents, independent of self-play."""
+
+    def __init__(self, every=5_000, games=200, seed=10_000, max_steps=200, verbose=0):
+        super().__init__(verbose)
+        self.every = every
+        self.games = games
+        self.seed = seed
+        self.max_steps = max_steps
+        self.next_benchmark = every
+        self.rows = []
+
+    def _on_training_start(self):
+        GRAPH_DIR.mkdir(parents=True, exist_ok=True)
+        if BENCHMARK_PATH.exists():
+            with BENCHMARK_PATH.open(newline="", encoding="utf-8") as handle:
+                self.rows = list(csv.DictReader(handle))
+        self.next_benchmark = ((self.model.num_timesteps // self.every) + 1) * self.every
+
+    def _on_step(self):
+        return True
+
+    def _on_rollout_end(self):
+        if self.model.num_timesteps < self.next_benchmark:
+            return
+        while self.model.num_timesteps >= self.next_benchmark:
+            self._run_benchmark(self.next_benchmark)
+            self.next_benchmark += self.every
+
+    def _run_benchmark(self, benchmark_step):
+        env = EsmakkerEnv()
+        results = []
+        for game_index in range(self.games):
+            observation, _ = env.reset(seed=self.seed + benchmark_step + game_index)
+            terminated = False
+            steps = 0
+            while not terminated and steps < self.max_steps:
+                action, _ = self.model.predict(
+                    observation,
+                    action_masks=env.action_masks(),
+                    deterministic=True,
+                )
+                observation, _, terminated, _, info = env.step(int(action))
+                steps += 1
+            settlement = info["settlement"]
+            player = int(info["learning_player"])
+            completed = int(terminated and settlement is not None)
+            results.append({
+                "timesteps": benchmark_step,
+                "game": game_index + 1,
+                "seat": player,
+                "contract": info["contract"] or "none",
+                "completed": completed,
+                "success": int(settlement.contract_succeeded) if completed else 0,
+                "payment": settlement.payments[player] if completed else 0,
+                "tricks": info["tricks_won"][player] if completed else 0,
+            })
+        self.rows.extend(results)
+        self._write_results()
+        completed = [row for row in results if row["completed"]]
+        summary = np.asarray([float(row["payment"]) for row in completed])
+        success = np.asarray([float(row["success"]) for row in completed])
+        if not completed:
+            summary = np.asarray([0.0])
+            success = np.asarray([0.0])
+        print(
+            f"Rule benchmark {benchmark_step}: {self.games} games | "
+            f"completed {len(completed)}/{self.games} | "
+            f"success {success.mean():.1%} | payment {summary.mean():+.2f}"
+        )
+
+    def _write_results(self):
+        fields = ["timesteps", "game", "seat", "contract", "completed", "success", "payment", "tricks"]
+        with BENCHMARK_PATH.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fields)
+            writer.writeheader()
+            writer.writerows(self.rows)
+
+        data = []
+        for timestep in sorted({row["timesteps"] for row in self.rows}, key=int):
+            all_rows = [row for row in self.rows if row["timesteps"] == timestep]
+            rows = [row for row in all_rows if row.get("completed", "1") == "1"]
+            if not all_rows:
+                continue
+            data.append({
+                "timesteps": int(timestep),
+                "completion": len(rows) / len(all_rows),
+                "success": np.mean([float(row["success"]) for row in rows]) if rows else np.nan,
+                "payment": np.mean([float(row["payment"]) for row in rows]) if rows else np.nan,
+                "by_seat": {
+                    seat: [row for row in all_rows if row["completed"] == "1" and row["seat"] != "" and int(row["seat"]) == seat]
+                    for seat in range(4)
+                },
+            })
+        if not data:
+            return
+        steps = [row["timesteps"] for row in data]
+        fig, axes = plt.subplots(3, 1, figsize=(10, 10), sharex=True)
+        axes[0].plot(steps, [row["completion"] for row in data], marker="o", linewidth=2, color="black", label="overall")
+        for seat, color in enumerate(("tab:blue", "tab:orange", "tab:green", "tab:red")):
+            values = [
+                len(row["by_seat"][seat]) / max(1, sum(
+                    1 for item in self.rows
+                    if item["timesteps"] == str(row["timesteps"])
+                    and item["seat"] == str(seat)
+                ))
+                if row["by_seat"][seat] else np.nan
+                for row in data
+            ]
+            axes[0].plot(steps, values, alpha=0.7, color=color, label=f"seat {seat + 1}")
+        axes[0].set_ylabel("Completed games")
+        axes[0].set_ylim(-0.05, 1.05)
+        axes[0].set_title("Esmakker learner vs fixed rule opponents")
+        axes[0].legend(ncol=3, fontsize="small")
+        axes[1].plot(steps, [row["success"] for row in data], marker="o", linewidth=2, color="black", label="overall")
+        for seat, color in enumerate(("tab:blue", "tab:orange", "tab:green", "tab:red")):
+            values = [
+                np.mean([float(item["success"]) for item in row["by_seat"][seat]]) if row["by_seat"][seat] else np.nan
+                for row in data
+            ]
+            axes[1].plot(steps, values, alpha=0.7, color=color, label=f"seat {seat + 1}")
+        axes[1].axhline(0.5, color="black", linewidth=0.8, linestyle="--")
+        axes[1].set_ylabel("Contract success")
+        axes[1].set_ylim(-0.05, 1.05)
+        axes[2].plot(steps, [row["payment"] for row in data], marker="o", linewidth=2, color="black", label="overall")
+        for seat, color in enumerate(("tab:blue", "tab:orange", "tab:green", "tab:red")):
+            values = [
+                np.mean([float(item["payment"]) for item in row["by_seat"][seat]]) if row["by_seat"][seat] else np.nan
+                for row in data
+            ]
+            axes[2].plot(steps, values, alpha=0.7, color=color, label=f"seat {seat + 1}")
+        axes[2].axhline(0, color="black", linewidth=0.8)
+        axes[2].set_ylabel("Average settlement")
+        axes[2].set_xlabel("Training timesteps")
+        fig.tight_layout()
+        fig.savefig(BENCHMARK_PLOT_PATH, dpi=140)
+        plt.close(fig)
 
 
 class EsmakkerMetricsCallback(BaseCallback):
@@ -215,6 +356,9 @@ def parse_args():
     parser.add_argument("--opponent-device", default="cpu")
     parser.add_argument("--snapshot-every", type=int, default=50_000)
     parser.add_argument("--league-size", type=int, default=10)
+    parser.add_argument("--benchmark-every", type=int, default=5_000)
+    parser.add_argument("--benchmark-games", type=int, default=200)
+    parser.add_argument("--benchmark-max-steps", type=int, default=200)
     return parser.parse_args()
 
 
@@ -249,6 +393,11 @@ def main():
             league,
             every=args.snapshot_every,
             keep=args.league_size,
+        ),
+        RuleBenchmarkCallback(
+            every=args.benchmark_every,
+            games=args.benchmark_games,
+            max_steps=args.benchmark_max_steps,
         ),
     ]
     model.learn(

@@ -50,6 +50,16 @@ mix of older policies prevents the auction from adapting only to the latest
 policy's current weaknesses. The defaults can be changed with
 `--snapshot-every`, `--league-size`, and `--opponent-device`.
 
+Self-play is not used as the quality score. A separate fixed-opponent
+benchmark plays 200 games every 5,000 training timesteps against the legal
+rule fallback. Results are written to
+`graphs/esmakker/rule_benchmark.csv` and plotted in
+`graphs/esmakker/rule_benchmark_progress.png`. The plot shows both the
+overall result and separate lines for learner seats 1 through 4. Since the
+learning seat is randomized, the overall line is the primary comparison;
+seat lines are diagnostic checks for seat bias. Incomplete benchmark games
+are recorded but excluded from averages, with a 200-decision safety limit.
+
 During training, completed rounds are recorded in
 `graphs/esmakker/training_metrics.csv`, and the latest-100-round progress
 graph is refreshed at `graphs/esmakker/training_progress.png`. The graph's
