@@ -1,4 +1,4 @@
-"""Train an Esmakker Whist policy against rule-based opponents."""
+"""Train an Esmakker Whist policy with historical league self-play."""
 
 import argparse
 import csv
@@ -12,14 +12,95 @@ from stable_baselines3.common.callbacks import BaseCallback
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from esmakker_rl_env import EsmakkerEnv
+from esmakker_rl_env import NUM_ACTIONS, OBS_SIZE, EsmakkerEnv
 
 
 CHECKPOINT_DIR = Path("checkpoints") / "esmakker"
+LEAGUE_DIR = CHECKPOINT_DIR / "league"
 GRAPH_DIR = Path("graphs") / "esmakker"
 METRICS_PATH = GRAPH_DIR / "training_metrics.csv"
 DECISIONS_PATH = GRAPH_DIR / "bidding_decisions.csv"
 PLOT_PATH = GRAPH_DIR / "training_progress.png"
+
+
+class FrozenLeaguePolicy:
+    """Select one frozen historical policy to control opponents each round."""
+
+    def __init__(self, directory, device="cpu"):
+        self.directory = Path(directory)
+        self.device = device
+        self.paths = []
+        self.models = {}
+        self.current_model = None
+        self.failed_paths = set()
+        self.refresh()
+
+    def refresh(self):
+        self.paths = sorted(self.directory.glob("snapshot_*.zip"))
+        active = set(self.paths)
+        self.models = {path: model for path, model in self.models.items() if path in active}
+
+    def begin_round(self, rng):
+        self.current_model = None
+        if not self.paths:
+            return
+        path = self.paths[int(rng.integers(len(self.paths)))]
+        try:
+            if path not in self.models:
+                model = MaskablePPO.load(path, device=self.device)
+                if model.observation_space.shape != (OBS_SIZE,) or model.action_space.n != NUM_ACTIONS:
+                    raise ValueError("Incompatible Esmakker observation or action space")
+                self.models[path] = model
+            self.current_model = self.models[path]
+        except (OSError, ValueError, KeyError) as error:
+            if path not in self.failed_paths:
+                print(f"Skipping league snapshot {path}: {error}")
+                self.failed_paths.add(path)
+
+    def predict(self, observation, mask):
+        if self.current_model is None:
+            return None
+        action, _ = self.current_model.predict(
+            observation,
+            action_masks=mask,
+            deterministic=False,
+        )
+        return int(action)
+
+
+class LeagueSnapshotCallback(BaseCallback):
+    """Periodically freeze the learner for future self-play opponents."""
+
+    def __init__(self, league, every=50_000, keep=10, verbose=0):
+        super().__init__(verbose)
+        self.league = league
+        self.every = every
+        self.keep = keep
+        self.next_snapshot = every
+
+    def _on_training_start(self):
+        LEAGUE_DIR.mkdir(parents=True, exist_ok=True)
+        self.next_snapshot = ((self.model.num_timesteps // self.every) + 1) * self.every
+        if not self.league.paths:
+            self._save_snapshot()
+
+    def _on_step(self):
+        return True
+
+    def _on_rollout_end(self):
+        if self.model.num_timesteps >= self.next_snapshot:
+            self._save_snapshot()
+            self.model.save(CHECKPOINT_DIR / "latest")
+            self.next_snapshot = ((self.model.num_timesteps // self.every) + 1) * self.every
+
+    def _save_snapshot(self):
+        path = LEAGUE_DIR / f"snapshot_{self.model.num_timesteps:012d}.zip"
+        self.model.save(path)
+        snapshots = sorted(LEAGUE_DIR.glob("snapshot_*.zip"))
+        for old_path in snapshots[:-self.keep]:
+            old_path.unlink()
+        self.league.refresh()
+        print(f"League snapshot saved: {path}")
 
 
 class EsmakkerMetricsCallback(BaseCallback):
@@ -131,6 +212,9 @@ def parse_args():
     parser.add_argument("--timesteps", type=int, default=250_000)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--opponent-device", default="cpu")
+    parser.add_argument("--snapshot-every", type=int, default=50_000)
+    parser.add_argument("--league-size", type=int, default=10)
     return parser.parse_args()
 
 
@@ -138,7 +222,8 @@ def main():
     args = parse_args()
     CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
     checkpoint = CHECKPOINT_DIR / "latest.zip"
-    env = EsmakkerEnv()
+    league = FrozenLeaguePolicy(LEAGUE_DIR, device=args.opponent_device)
+    env = EsmakkerEnv(opponent_policy=league)
 
     if args.resume and checkpoint.exists():
         model = MaskablePPO.load(checkpoint, env=env, device=args.device)
@@ -158,11 +243,18 @@ def main():
             verbose=1,
         )
 
-    callback = EsmakkerMetricsCallback()
+    callbacks = [
+        EsmakkerMetricsCallback(),
+        LeagueSnapshotCallback(
+            league,
+            every=args.snapshot_every,
+            keep=args.league_size,
+        ),
+    ]
     model.learn(
         total_timesteps=args.timesteps,
         reset_num_timesteps=not args.resume,
-        callback=callback,
+        callback=callbacks,
     )
     model.save(CHECKPOINT_DIR / "latest")
     print(f"Saved {checkpoint}")

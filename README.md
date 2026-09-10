@@ -25,7 +25,10 @@ full training directories remain local-only so the repository stays usable.
 ### Training
 
 The Esmakker rules engine has a separate masked PPO adapter and trainer. It
-trains one randomized seat against three legal rule-based opponents:
+trains one randomized seat against three opponents drawn from a frozen-policy
+league. The same historical policy controls all three opponents for a round,
+including bidding, trump, partner-suit and card-play decisions. A legal
+rule-based opponent is used only while no compatible snapshot exists.
 
 ```powershell
 python train_esmakker.py --timesteps 250000
@@ -38,6 +41,14 @@ python train_esmakker.py --resume --timesteps 250000
 ```
 
 Checkpoints are saved to `checkpoints/esmakker/latest.zip`.
+
+Self-play snapshots are saved every 50,000 timesteps under
+`checkpoints/esmakker/league/`; the newest 10 are retained. A snapshot is
+selected once per round so opponents remain consistent during that auction
+and hand. The live learner is never used directly as its own opponent. This
+mix of older policies prevents the auction from adapting only to the latest
+policy's current weaknesses. The defaults can be changed with
+`--snapshot-every`, `--league-size`, and `--opponent-device`.
 
 During training, completed rounds are recorded in
 `graphs/esmakker/training_metrics.csv`, and the latest-100-round progress

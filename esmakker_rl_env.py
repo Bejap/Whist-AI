@@ -20,7 +20,7 @@ OBS_SIZE = 52 + 52 + 4 + 11 + 5 + 4 + 5 + 4 + 4 + 4
 
 
 class EsmakkerEnv(gym.Env):
-    """Train one seat against legal rule-based opponents for one round.
+    """Train one seat against policy-driven opponents for one round.
 
     The learning seat is randomized on reset. Opponents act until it is that
     seat's turn, so each Gymnasium step always represents one policy decision.
@@ -28,16 +28,20 @@ class EsmakkerEnv(gym.Env):
 
     metadata = {"render_modes": ["human"]}
 
-    def __init__(self, render_mode=None):
+    def __init__(self, render_mode=None, opponent_policy=None):
         super().__init__()
         self.render_mode = render_mode
         self.observation_space = spaces.Box(0.0, 1.0, shape=(OBS_SIZE,), dtype=np.float32)
         self.action_space = spaces.Discrete(NUM_ACTIONS)
         self.game = EsmakkerGame()
+        self.opponent_policy = opponent_policy
         self.learning_player = 0
         self.done = False
         self.last_decision = None
         self.last_underbid_penalty = 0.0
+
+    def set_opponent_policy(self, opponent_policy):
+        self.opponent_policy = opponent_policy
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -47,6 +51,8 @@ class EsmakkerEnv(gym.Env):
         self.done = False
         self.last_decision = None
         self.last_underbid_penalty = 0.0
+        if self.opponent_policy is not None:
+            self.opponent_policy.begin_round(self.np_random)
         self._advance_opponents()
         return self._observation(), self._info()
 
@@ -75,11 +81,14 @@ class EsmakkerEnv(gym.Env):
             reward -= self.last_underbid_penalty
         return self._observation(), reward, terminated, False, self._info()
 
-    def action_masks(self):
+    def action_masks(self, player=None):
         mask = np.zeros(NUM_ACTIONS, dtype=bool)
         if self.done:
             return mask
         game = self.game
+        player = self.learning_player if player is None else player
+        if player != self._decision_player():
+            return mask
         if game.phase == "bidding":
             mask[PASS_ACTION] = True
             for index, bid in enumerate(BID_ORDER):
@@ -92,7 +101,7 @@ class EsmakkerEnv(gym.Env):
                 if suit != game.trump_suit:
                     mask[PARTNER_START + suit] = True
         elif game.phase == "play":
-            for card in game.legal_cards(self.learning_player):
+            for card in game.legal_cards(player):
                 mask[card] = True
         return mask
 
@@ -123,32 +132,26 @@ class EsmakkerEnv(gym.Env):
 
     def _advance_opponents(self):
         while self.game.phase != "complete" and self._decision_player() != self.learning_player:
-            game = self.game
             player = self._decision_player()
-            if game.phase == "bidding":
-                if game.current_bid is None and self._hand_strength(player) >= 10:
-                    game.bid(player, "7")
-                else:
-                    game.pass_bid(player)
-            elif game.phase == "choose_trump":
-                game.choose_trump(player, self._best_suit(player))
-            elif game.phase == "choose_partner":
-                trump = game.trump_suit
-                partner_suit = next(suit for suit in range(4) if suit != trump)
-                game.choose_partner_suit(player, partner_suit)
-            else:
-                game.play_card(player, self._bot_card(player))
+            mask = self.action_masks(player)
+            action = None
+            if self.opponent_policy is not None:
+                action = self.opponent_policy.predict(self._observation(player), mask)
+            if action is None or action < 0 or action >= NUM_ACTIONS or not mask[action]:
+                action = self._rule_action(player)
+            self._take_action(player, action)
 
     def _decision_player(self):
         if self.game.phase in {"choose_trump", "choose_partner"}:
             return self.game.declarer
         return self.game.current_player
 
-    def _observation(self):
+    def _observation(self, player=None):
         game = self.game
+        player = self.learning_player if player is None else player
         observation = np.zeros(OBS_SIZE, dtype=np.float32)
         index = 0
-        for card in game.hands[self.learning_player]:
+        for card in game.hands[player]:
             observation[index + card] = 1.0
         index += 52
         for _, card in game.trick_cards:
@@ -161,7 +164,7 @@ class EsmakkerEnv(gym.Env):
         index += 11
         observation[index + game.trump_suit] = 1.0
         index += 5
-        observation[index + self.learning_player] = 1.0
+        observation[index + player] = 1.0
         index += 4
         observation[index + (game.declarer if game.declarer is not None else 4)] = 1.0
         index += 5
@@ -204,3 +207,16 @@ class EsmakkerEnv(gym.Env):
     def _bot_card(self, player):
         legal = self.game.legal_cards(player)
         return max(legal, key=lambda card: card % 13)
+
+    def _rule_action(self, player):
+        game = self.game
+        if game.phase == "bidding":
+            if game.current_bid is None and self._hand_strength(player) >= 10:
+                return BID_START
+            return PASS_ACTION
+        if game.phase == "choose_trump":
+            return TRUMP_START + self._best_suit(player)
+        if game.phase == "choose_partner":
+            suit = next(suit for suit in range(4) if suit != game.trump_suit)
+            return PARTNER_START + suit
+        return self._bot_card(player)
