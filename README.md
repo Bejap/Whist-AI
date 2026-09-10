@@ -22,6 +22,23 @@ full training directories remain local-only so the repository stays usable.
 
 ## Esmakker Whist
 
+### Training
+
+The Esmakker rules engine has a separate masked PPO adapter and trainer. It
+trains one randomized seat against three legal rule-based opponents:
+
+```powershell
+python train_esmakker.py --timesteps 250000
+```
+
+Resume the latest Esmakker checkpoint with:
+
+```powershell
+python train_esmakker.py --resume --timesteps 250000
+```
+
+Checkpoints are saved to `checkpoints/esmakker/latest.zip`.
+
 The fixed-partnership Whist training environments are retained as experiments.
 The intended long-term game is Esmakker Whist, implemented separately in
 `esmakker_env.py`. It models bidding, declarer-selected trump, the secret
