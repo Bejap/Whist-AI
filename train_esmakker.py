@@ -12,7 +12,7 @@ from stable_baselines3.common.callbacks import BaseCallback
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from esmakker_rl_env import NUM_ACTIONS, OBS_SIZE, EsmakkerEnv
+from esmakker_rl_env import BID_START, PASS_ACTION, NUM_ACTIONS, OBS_SIZE, EsmakkerEnv
 
 
 CHECKPOINT_DIR = Path("checkpoints") / "esmakker"
@@ -70,6 +70,26 @@ class FrozenLeaguePolicy:
         return int(action)
 
 
+class ModelAuctionPolicy:
+    """Use the evaluated model for every seat's bid, but not their card play."""
+
+    def __init__(self, model):
+        self.model = model
+
+    def begin_round(self, rng):
+        pass
+
+    def predict(self, observation, mask):
+        if not mask[BID_START:PASS_ACTION + 1].any():
+            return None
+        action, _ = self.model.predict(
+            observation,
+            action_masks=mask,
+            deterministic=True,
+        )
+        return int(action)
+
+
 class LeagueSnapshotCallback(BaseCallback):
     """Periodically freeze the learner for future self-play opponents."""
 
@@ -106,9 +126,9 @@ class LeagueSnapshotCallback(BaseCallback):
 
 
 class RuleBenchmarkCallback(BaseCallback):
-    """Measure the learner against fixed rule opponents, independent of self-play."""
+    """Measure the learner against fixed rules and model-led auctions."""
 
-    def __init__(self, every=5_000, games=200, seed=10_000, max_steps=200, verbose=0):
+    def __init__(self, every=5_000, games=100, seed=10_000, max_steps=200, verbose=0):
         super().__init__(verbose)
         self.every = every
         self.games = games
@@ -131,11 +151,13 @@ class RuleBenchmarkCallback(BaseCallback):
         if self.model.num_timesteps < self.next_benchmark:
             return
         while self.model.num_timesteps >= self.next_benchmark:
-            self._run_benchmark(self.next_benchmark)
+            self._run_benchmark(self.next_benchmark, "fixed_rule")
+            self._run_benchmark(self.next_benchmark, "model_auction_rule_play")
             self.next_benchmark += self.every
 
-    def _run_benchmark(self, benchmark_step):
-        env = EsmakkerEnv()
+    def _run_benchmark(self, benchmark_step, mode):
+        opponent_policy = ModelAuctionPolicy(self.model) if mode == "model_auction_rule_play" else None
+        env = EsmakkerEnv(opponent_policy=opponent_policy)
         results = []
         for game_index in range(self.games):
             observation, _ = env.reset(seed=self.seed + benchmark_step + game_index)
@@ -154,6 +176,7 @@ class RuleBenchmarkCallback(BaseCallback):
             completed = int(terminated and settlement is not None)
             results.append({
                 "timesteps": benchmark_step,
+                "mode": mode,
                 "game": game_index + 1,
                 "seat": player,
                 "contract": info["contract"] or "none",
@@ -172,21 +195,23 @@ class RuleBenchmarkCallback(BaseCallback):
             success = np.asarray([0.0])
         print(
             f"Rule benchmark {benchmark_step}: {self.games} games | "
+            f"{mode} | "
             f"completed {len(completed)}/{self.games} | "
             f"success {success.mean():.1%} | payment {summary.mean():+.2f}"
         )
 
     def _write_results(self):
-        fields = ["timesteps", "game", "seat", "contract", "completed", "success", "payment", "tricks"]
+        fields = ["timesteps", "mode", "game", "seat", "contract", "completed", "success", "payment", "tricks"]
         with BENCHMARK_PATH.open("w", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(handle, fieldnames=fields)
             writer.writeheader()
             writer.writerows(self.rows)
 
         data = []
+        auction_data = []
         for timestep in sorted({row["timesteps"] for row in self.rows}, key=int):
-            all_rows = [row for row in self.rows if row["timesteps"] == timestep]
-            rows = [row for row in all_rows if row.get("completed", "1") == "1"]
+            all_rows = [row for row in self.rows if row["timesteps"] == timestep and row.get("mode", "fixed_rule") == "fixed_rule"]
+            rows = [row for row in all_rows if str(row.get("completed", "1")) == "1"]
             if not all_rows:
                 continue
             data.append({
@@ -195,10 +220,22 @@ class RuleBenchmarkCallback(BaseCallback):
                 "success": np.mean([float(row["success"]) for row in rows]) if rows else np.nan,
                 "payment": np.mean([float(row["payment"]) for row in rows]) if rows else np.nan,
                 "by_seat": {
-                    seat: [row for row in all_rows if row["completed"] == "1" and row["seat"] != "" and int(row["seat"]) == seat]
+                    seat: [row for row in all_rows if str(row["completed"]) == "1" and row["seat"] != "" and int(row["seat"]) == seat]
                     for seat in range(4)
                 },
             })
+            auction_rows = [
+                row for row in self.rows
+                if row["timesteps"] == timestep and row.get("mode") == "model_auction_rule_play"
+            ]
+            auction_completed = [row for row in auction_rows if str(row["completed"]) == "1"]
+            if auction_rows:
+                auction_data.append({
+                    "timesteps": int(timestep),
+                    "completion": len(auction_completed) / len(auction_rows),
+                    "success": np.mean([float(row["success"]) for row in auction_completed]) if auction_completed else np.nan,
+                    "payment": np.mean([float(row["payment"]) for row in auction_completed]) if auction_completed else np.nan,
+                })
         if not data:
             return
         steps = [row["timesteps"] for row in data]
@@ -209,12 +246,19 @@ class RuleBenchmarkCallback(BaseCallback):
                 len(row["by_seat"][seat]) / max(1, sum(
                     1 for item in self.rows
                     if item["timesteps"] == str(row["timesteps"])
+                    and item.get("mode", "fixed_rule") == "fixed_rule"
                     and item["seat"] == str(seat)
                 ))
                 if row["by_seat"][seat] else np.nan
                 for row in data
             ]
             axes[0].plot(steps, values, alpha=0.7, color=color, label=f"seat {seat + 1}")
+        if auction_data:
+            axes[0].plot(
+                [row["timesteps"] for row in auction_data],
+                [row["completion"] for row in auction_data],
+                color="tab:purple", linestyle="--", marker="s", label="model-led auction",
+            )
         axes[0].set_ylabel("Completed games")
         axes[0].set_ylim(-0.05, 1.05)
         axes[0].set_title("Esmakker learner vs fixed rule opponents")
@@ -226,6 +270,12 @@ class RuleBenchmarkCallback(BaseCallback):
                 for row in data
             ]
             axes[1].plot(steps, values, alpha=0.7, color=color, label=f"seat {seat + 1}")
+        if auction_data:
+            axes[1].plot(
+                [row["timesteps"] for row in auction_data],
+                [row["success"] for row in auction_data],
+                color="tab:purple", linestyle="--", marker="s",
+            )
         axes[1].axhline(0.5, color="black", linewidth=0.8, linestyle="--")
         axes[1].set_ylabel("Contract success")
         axes[1].set_ylim(-0.05, 1.05)
@@ -236,6 +286,12 @@ class RuleBenchmarkCallback(BaseCallback):
                 for row in data
             ]
             axes[2].plot(steps, values, alpha=0.7, color=color, label=f"seat {seat + 1}")
+        if auction_data:
+            axes[2].plot(
+                [row["timesteps"] for row in auction_data],
+                [row["payment"] for row in auction_data],
+                color="tab:purple", linestyle="--", marker="s",
+            )
         axes[2].axhline(0, color="black", linewidth=0.8)
         axes[2].set_ylabel("Average settlement")
         axes[2].set_xlabel("Training timesteps")
@@ -357,7 +413,7 @@ def parse_args():
     parser.add_argument("--snapshot-every", type=int, default=50_000)
     parser.add_argument("--league-size", type=int, default=10)
     parser.add_argument("--benchmark-every", type=int, default=5_000)
-    parser.add_argument("--benchmark-games", type=int, default=200)
+    parser.add_argument("--benchmark-games", type=int, default=100)
     parser.add_argument("--benchmark-max-steps", type=int, default=200)
     return parser.parse_args()
 
