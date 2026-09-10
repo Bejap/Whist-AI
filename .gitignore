@@ -54,6 +54,7 @@ train_anchor_selfplay.lock
 train_post_selfplay.lock
 train_competitive.lock
 replays/
+graphs/benchmarks/esmakker_human_games.jsonl
 fresh_start.flag
 *.png
 *.tar.gz

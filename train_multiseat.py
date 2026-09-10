@@ -29,16 +29,16 @@ def acquire_lock():
 def main():
     acquire_lock()
     train.CHECKPOINT_DIR = os.getenv(
-        "WHIST_EXPERIMENT_CHECKPOINT_DIR", "checkpoints_multiseat"
+        "WHIST_EXPERIMENT_CHECKPOINT_DIR", os.path.join("checkpoints", "multiseat")
     )
     train.REWARDS_CSV = os.getenv(
-        "WHIST_EXPERIMENT_REWARDS_CSV", "rewards_multiseat.csv"
+        "WHIST_EXPERIMENT_REWARDS_CSV", os.path.join("graphs", "benchmarks", "rewards_multiseat.csv")
     )
     train.WINRATE_CSV = os.getenv(
-        "WHIST_EXPERIMENT_WINRATE_CSV", "winrate_multiseat.csv"
+        "WHIST_EXPERIMENT_WINRATE_CSV", os.path.join("graphs", "benchmarks", "winrate_multiseat.csv")
     )
     train.GRAPH_DIR = os.getenv(
-        "WHIST_EXPERIMENT_GRAPH_DIR", "graphs_multiseat"
+        "WHIST_EXPERIMENT_GRAPH_DIR", os.path.join("graphs", "multiseat")
     )
     train.BASELINE_CHECKPOINT = os.path.join(
         train.CHECKPOINT_DIR, "baseline.pth"

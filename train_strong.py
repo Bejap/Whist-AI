@@ -14,8 +14,8 @@ from models import TransformerCardExtractor
 from strong_eval import append_checkpoint_evaluation, evaluate_against_rule
 
 LOCK_PATH = "train_strong.lock"
-SCORES_CSV = "strong_checkpoint_scores.csv"
-BEST_CHECKPOINT = "checkpoints_strong/best_rule.pth"
+SCORES_CSV = os.path.join("graphs", "benchmarks", "strong_checkpoint_scores.csv")
+BEST_CHECKPOINT = os.path.join("checkpoints", "strong", "best_rule.pth")
 BEST_SCORE = float("-inf")
 
 
@@ -61,10 +61,10 @@ def load_best_score():
 def main():
     global BEST_SCORE
     acquire_lock()
-    train.CHECKPOINT_DIR = "checkpoints_strong"
-    train.REWARDS_CSV = "rewards_strong.csv"
-    train.WINRATE_CSV = "winrate_strong.csv"
-    train.GRAPH_DIR = "graphs_strong"
+    train.CHECKPOINT_DIR = os.path.join("checkpoints", "strong")
+    train.REWARDS_CSV = os.path.join("graphs", "benchmarks", "rewards_strong.csv")
+    train.WINRATE_CSV = os.path.join("graphs", "benchmarks", "winrate_strong.csv")
+    train.GRAPH_DIR = os.path.join("graphs", "strong")
     train.BASELINE_CHECKPOINT = os.path.join(train.CHECKPOINT_DIR, "baseline.pth")
     train.TOTAL_EPISODES = int(os.getenv("WHIST_TOTAL_EPISODES", "1000000"))
     train.CHECKPOINT_EVERY = int(os.getenv("WHIST_CHECKPOINT_EVERY", "5000"))

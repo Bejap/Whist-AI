@@ -14,8 +14,8 @@ from evaluate import rule_action
 from strong_eval import append_checkpoint_evaluation, evaluate_against_rule
 
 LOCK_PATH = "train_competitive.lock"
-SCORES_CSV = "competitive_checkpoint_scores.csv"
-BEST_CHECKPOINT = "checkpoints_competitive/best_rule.pth"
+SCORES_CSV = os.path.join("graphs", "benchmarks", "competitive_checkpoint_scores.csv")
+BEST_CHECKPOINT = os.path.join("checkpoints", "competitive", "best_rule.pth")
 BEST_SCORE = float("-inf")
 RULE_OPPONENT_PROB = 0.35
 BASE_POLICY_FN = None
@@ -79,10 +79,10 @@ def checkpoint_evaluator(model, checkpoint_path, episode):
 def main():
     global BASE_POLICY_FN, BASE_LEAGUE_FN, BEST_SCORE
     acquire_lock()
-    train.CHECKPOINT_DIR = "checkpoints_competitive"
-    train.REWARDS_CSV = "rewards_competitive.csv"
-    train.WINRATE_CSV = "winrate_competitive.csv"
-    train.GRAPH_DIR = "graphs_competitive"
+    train.CHECKPOINT_DIR = os.path.join("checkpoints", "competitive")
+    train.REWARDS_CSV = os.path.join("graphs", "benchmarks", "rewards_competitive.csv")
+    train.WINRATE_CSV = os.path.join("graphs", "benchmarks", "winrate_competitive.csv")
+    train.GRAPH_DIR = os.path.join("graphs", "competitive")
     train.BASELINE_CHECKPOINT = os.path.join(train.CHECKPOINT_DIR, "baseline.pth")
     train.TOTAL_EPISODES = int(os.getenv("WHIST_TOTAL_EPISODES", "1000000"))
     train.CHECKPOINT_EVERY = int(os.getenv("WHIST_CHECKPOINT_EVERY", "10000"))

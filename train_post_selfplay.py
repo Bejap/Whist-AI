@@ -21,9 +21,9 @@ from evaluate import rule_action
 from strong_eval import append_checkpoint_evaluation, evaluate_against_rule
 
 LOCK_PATH = "train_post_selfplay.lock"
-SOURCE_CHECKPOINT = os.path.join("checkpoints_competitive", "best_rule.pth")
-CHECKPOINT_DIR = "checkpoints_post_selfplay"
-SCORES_CSV = "post_selfplay_checkpoint_scores.csv"
+SOURCE_CHECKPOINT = os.path.join("checkpoints", "competitive", "best_rule.pth")
+CHECKPOINT_DIR = os.path.join("checkpoints", "post_selfplay")
+SCORES_CSV = os.path.join("graphs", "benchmarks", "post_selfplay_checkpoint_scores.csv")
 BEST_CHECKPOINT = os.path.join(CHECKPOINT_DIR, "best_rule.pth")
 BEST_SCORE = float("-inf")
 RULE_PROB = 0.20
@@ -92,9 +92,9 @@ def main():
         shutil.copy2(SOURCE_CHECKPOINT, seed_checkpoint)
 
     train.CHECKPOINT_DIR = CHECKPOINT_DIR
-    train.REWARDS_CSV = "rewards_post_selfplay.csv"
-    train.WINRATE_CSV = "winrate_post_selfplay.csv"
-    train.GRAPH_DIR = "graphs_post_selfplay"
+    train.REWARDS_CSV = os.path.join("graphs", "benchmarks", "rewards_post_selfplay.csv")
+    train.WINRATE_CSV = os.path.join("graphs", "benchmarks", "winrate_post_selfplay.csv")
+    train.GRAPH_DIR = os.path.join("graphs", "post_selfplay")
     train.BASELINE_CHECKPOINT = os.path.join(CHECKPOINT_DIR, "baseline.pth")
     train.TOTAL_EPISODES = int(os.getenv("WHIST_TOTAL_EPISODES", "1000000"))
     train.CHECKPOINT_EVERY = int(os.getenv("WHIST_CHECKPOINT_EVERY", "10000"))

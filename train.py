@@ -47,9 +47,9 @@ print("K: whist_env imported", flush=True)
 # Configuration
 # ---------------------------------------------------------------------------
 CHECKPOINT_DIR = "checkpoints"
-REWARDS_CSV = "rewards.csv"
-WINRATE_CSV = "winrate.csv"
-GRAPH_DIR = "graphs"
+REWARDS_CSV = os.path.join("graphs", "benchmarks", "rewards.csv")
+WINRATE_CSV = os.path.join("graphs", "benchmarks", "winrate.csv")
+GRAPH_DIR = os.path.join("graphs", "original")
 TOTAL_EPISODES = 1_000_000
 CHECKPOINT_EVERY = 10_000
 GRAPH_EVERY = 25_000

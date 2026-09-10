@@ -42,6 +42,12 @@ clicking them. The other seats currently use random legal play; actions are
 kept in the in-memory game history as the foundation for human-game logging
 and later imitation learning.
 
+Completed human rounds are appended to
+`graphs/benchmarks/esmakker_human_games.jsonl`. For a useful first imitation
+dataset, aim for **50-100 complete rounds**. For a robust first model of your
+style, **200-500 rounds** is a better target, especially because bidding,
+contract choice, trump choice, partner choice, and card play all need examples.
+
 ## Training
 
 Start a fresh training run (1,000,000 episodes by default):

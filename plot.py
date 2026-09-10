@@ -10,11 +10,11 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-REWARDS_CSV = "rewards.csv"
-GRAPH_DIR = "graphs"
-BENCHMARK_CSV = "benchmarks.csv"
-BENCHMARK_DETAILS_CSV = "benchmark_games.csv"
-STRONG_SCORES_CSV = "strong_checkpoint_scores.csv"
+REWARDS_CSV = os.path.join("graphs", "benchmarks", "rewards.csv")
+GRAPH_DIR = os.path.join("graphs", "original")
+BENCHMARK_CSV = os.path.join("graphs", "benchmarks", "benchmarks.csv")
+BENCHMARK_DETAILS_CSV = os.path.join("graphs", "benchmarks", "benchmark_games.csv")
+STRONG_SCORES_CSV = os.path.join("graphs", "benchmarks", "strong_checkpoint_scores.csv")
 
 
 def _wilson_interval(wins, games, z=1.96):
@@ -47,8 +47,9 @@ def plot_dashboard(out_dir=GRAPH_DIR):
     reward_ax.set_ylabel("Return")
     reward_ax.grid(alpha=0.25)
 
-    if os.path.exists("winrate.csv"):
-        win_rates = pd.read_csv("winrate.csv").drop_duplicates("episode", keep="last")
+    winrate_csv = os.path.join("graphs", "benchmarks", "winrate.csv")
+    if os.path.exists(winrate_csv):
+        win_rates = pd.read_csv(winrate_csv).drop_duplicates("episode", keep="last")
         win_ax.plot(win_rates["episode"], win_rates["win_rate_vs_baseline"], marker="o")
         win_ax.axhline(0.5, color="gray", linestyle="--", linewidth=1)
     win_ax.set_title("Win Rate vs Frozen Baseline")
@@ -275,8 +276,16 @@ def plot_legacy_pair(rewards_csv, winrate_csv, out_dir):
 if __name__ == "__main__":
     plot_rewards()
     plot_winrate()
-    plot_legacy_pair("rewards_multiseat.csv", "winrate_multiseat.csv", "graphs_multiseat")
-    plot_legacy_pair("rewards_strong.csv", "winrate_strong.csv", "graphs_strong")
+    plot_legacy_pair(
+        os.path.join("graphs", "benchmarks", "rewards_multiseat.csv"),
+        os.path.join("graphs", "benchmarks", "winrate_multiseat.csv"),
+        os.path.join("graphs", "multiseat"),
+    )
+    plot_legacy_pair(
+        os.path.join("graphs", "benchmarks", "rewards_strong.csv"),
+        os.path.join("graphs", "benchmarks", "winrate_strong.csv"),
+        os.path.join("graphs", "strong"),
+    )
     plot_strong_evaluation()
     plot_dashboard()
     plot_breakdowns()
