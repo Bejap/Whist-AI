@@ -1,8 +1,8 @@
 """Repeatable benchmark evaluation for Whist checkpoints.
 
 Examples:
-    python evaluate.py --episodes 1000 --opponent all
-    python evaluate.py --checkpoint checkpoints/whist_cp_200000.pth \
+    python -m training.selfplay.evaluate --episodes 1000 --opponent all
+    python -m training.selfplay.evaluate --checkpoint checkpoints/whist_cp_200000.pth \
         --episodes 2000 --opponent rule --mcts-sims 64
 """
 
@@ -16,7 +16,7 @@ import numpy as np
 from sb3_contrib import MaskablePPO
 
 from play import agent_action, random_action
-from train import latest_checkpoint
+from training.selfplay.train import latest_checkpoint
 from whist_env import NUM_PLAYERS, TEAMS, WhistEnv
 
 BENCHMARK_CSV = "benchmarks.csv"

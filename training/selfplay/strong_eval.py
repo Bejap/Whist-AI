@@ -5,7 +5,7 @@ import os
 
 import numpy as np
 
-from evaluate import rule_action
+from training.selfplay.evaluate import rule_action
 from play import agent_action
 from whist_env import TEAMS, WhistEnv
 

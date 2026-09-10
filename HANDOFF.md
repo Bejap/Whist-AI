@@ -8,6 +8,8 @@ The portable card-play checkpoint is tracked at:
 
 `checkpoints/esmakker_cardplay_v1/latest.zip`
 
+Training code: `training/cardplay/train_esmakker_cardplay.py`
+
 Current saved state:
 
 - Contract: `7`
@@ -18,15 +20,15 @@ Current saved state:
 The checkpoint can be resumed with:
 
 ```powershell
-.venv\Scripts\python.exe train_esmakker_cardplay.py --run-name esmakker_cardplay_v1 --contract 7 --resume --timesteps 500000 --device cuda --gpu-memory-fraction 0.30 --n-steps 2048 --batch-size 512 --checkpoint-every 50000
+.venv\Scripts\python.exe -m training.cardplay.train_esmakker_cardplay --run-name esmakker_cardplay_v1 --contract 7 --resume --timesteps 500000 --device cuda --gpu-memory-fraction 0.30 --n-steps 2048 --batch-size 512 --checkpoint-every 50000
 ```
 
 Use a new chat in the repository and ask the agent to read this file first.
 
 ## Important status
 
-- The team-trick accounting bug is fixed in `esmakker_cardplay_env.py`.
-- The regression test is in `test_esmakker_cardplay_env.py`.
+- The team-trick accounting bug is fixed in `training/cardplay/esmakker_cardplay_env.py`.
+- The regression test is in `training/cardplay/test_esmakker_cardplay_env.py`.
 - The fix uses unique team seats, so the learner is not counted twice when also holding the partner card.
 - The focused card-play tests passed after the fix.
 - Commit containing the fix: `8623b1c`.
@@ -53,5 +55,5 @@ There are currently two `train_esmakker_cardplay.py` processes using the same ru
 Run the focused tests with:
 
 ```powershell
-.venv\Scripts\python.exe -m unittest -v test_esmakker_cardplay_env.py
+.venv\Scripts\python.exe -m unittest -v training.cardplay.test_esmakker_cardplay_env
 ```

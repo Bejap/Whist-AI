@@ -11,14 +11,14 @@ overwriting another run.
 Step 1 trains card play under a fixed numeric contract, without bidding. The
 learner is always the declarer, receives a random trump and partner suit, and
 must learn legal trick-taking decisions before bidding is introduced. The
-separate trainer is `train_esmakker_cardplay.py`; its default output directory
+separate trainer is `training/cardplay/train_esmakker_cardplay.py`; its default output directory
 is `checkpoints/esmakker_cardplay_v1/` with metrics in
 `graphs/esmakker_cardplay_v1/cardplay_metrics.csv`.
 
 Start a fresh contract-7 curriculum run with:
 
 ```powershell
-python -u train_esmakker_cardplay.py `
+python -u -m training.cardplay.train_esmakker_cardplay `
 	--run-name esmakker_cardplay_v1 `
 	--contract 7 `
 	--timesteps 500000 `
@@ -61,14 +61,14 @@ including bidding, trump, partner-suit and card-play decisions. A legal
 rule-based opponent is used only while no compatible snapshot exists.
 
 ```powershell
-python train_esmakker.py --timesteps 250000
+python -m training.esmakker.train_esmakker --timesteps 250000
 ```
 
 To train with CUDA while limiting this process to 30% of the GPU VRAM, keep
 league opponents on the CPU to reduce GPU contention:
 
 ```powershell
-python train_esmakker.py --timesteps 250000 --device cuda --opponent-device cpu --gpu-memory-fraction 0.30
+python -m training.esmakker.train_esmakker --timesteps 250000 --device cuda --opponent-device cpu --gpu-memory-fraction 0.30
 ```
 
 The memory fraction limits VRAM reserved by this process; it does not impose a
@@ -79,7 +79,7 @@ for example, with `--gpu-memory-fraction 0.20`.
 Resume the latest Esmakker checkpoint with:
 
 ```powershell
-python train_esmakker.py --resume --timesteps 250000
+python -m training.esmakker.train_esmakker --resume --timesteps 250000
 ```
 
 Checkpoints are saved to `checkpoints/esmakker/latest.zip`.
@@ -223,7 +223,7 @@ contract choice, trump choice, partner choice, and card play all need examples.
 Start a fresh training run (1,000,000 episodes by default):
 
 ```bash
-python train.py
+python -m training.selfplay.train
 ```
 
 Checkpoints are saved every 10,000 episodes to the `checkpoints/` directory,
@@ -234,7 +234,7 @@ Benchmark a checkpoint against fixed opponents and write results to
 `benchmarks.csv`:
 
 ```bash
-python evaluate.py --episodes 1000 --opponent all --mcts-sims 0
+python -m training.selfplay.evaluate --episodes 1000 --opponent all --mcts-sims 0
 ```
 
 Generate the combined training and benchmark dashboard:
@@ -257,26 +257,26 @@ of the changing self-play pool.
 ### Resuming from a checkpoint
 
 Training **automatically resumes** from the latest checkpoint found in
-`checkpoints/`.  Simply run `python train.py` again and it will pick up
+`checkpoints/`.  Simply run `python -m training.selfplay.train` again and it will pick up
 where it left off.
 
 To resume from a **specific** checkpoint (e.g. after copying one from
 another machine), make sure the desired `.pth` file is in the `checkpoints/`
 directory and remove any newer checkpoint files so that it becomes the
-latest one, then run `python train.py`.
+latest one, then run `python -m training.selfplay.train`.
 
 ```bash
 # Example: resume from episode 5000
 ls checkpoints/          # verify whist_cp_5000.pth exists
-python train.py          # automatically loads the latest checkpoint
+python -m training.selfplay.train  # automatically loads the latest checkpoint
 ```
 
-You can also adjust `TOTAL_EPISODES` in `train.py` to extend or shorten the
+You can also adjust `TOTAL_EPISODES` in `training/selfplay/train.py` to extend or shorten the
 default 1,000,000-episode run.
 
 ### Configuration
 
-Key parameters in `train.py`:
+Key parameters in `training/selfplay/train.py`:
 
 | Parameter | Default | Description |
 |---|---|---|
@@ -300,7 +300,7 @@ separate files and does not overwrite the original run:
 
 ```powershell
 $env:WHIST_TOTAL_EPISODES="1000000"
-python train_multiseat.py
+python -m training.selfplay.train_multiseat
 ```
 
 Use a short validation run first:
@@ -310,12 +310,12 @@ $env:WHIST_TOTAL_EPISODES="1000"
 $env:WHIST_CHECKPOINT_EVERY="500"
 $env:WHIST_EVAL_EVERY="500"
 $env:WHIST_EVAL_EPISODES="100"
-python train_multiseat.py
+python -m training.selfplay.train_multiseat
 ```
 
 ### Strong transformer experiment
 
-`train_strong.py` is an isolated experiment for stronger strategic play. It
+`training/selfplay/train_strong.py` is an isolated experiment for stronger strategic play. It
 uses the transformer card extractor, lower heuristic shaping, a larger terminal
 team-result reward, and promotion by fixed rule-opponent performance. Each
 checkpoint receives a fast raw-policy evaluation over balanced team assignments
@@ -323,7 +323,7 @@ and a separate hidden-hand MCTS evaluation. The best raw-policy checkpoint is
 saved as `checkpoints_strong/best_rule.pth`.
 
 ```powershell
-python train_strong.py
+python -m training.selfplay.train_strong
 ```
 
 It writes checkpoints, reward/win-rate graphs, and benchmark scores to its own
@@ -334,14 +334,14 @@ episodes, and logs reward every 250 episodes. Each checkpoint uses a compact
 
 ### Fast competitive experiment
 
-For a faster strategic experiment, use `train_competitive.py`. It keeps the
+For a faster strategic experiment, use `training/selfplay/train_competitive.py`. It keeps the
 MLP policy and four-seat training, but mixes a real fixed rule player into
 35% of opponent turns. It evaluates 200 complete balanced games at every
 checkpoint and promotes the best rule-player result to
 `checkpoints_competitive/best_rule.pth`.
 
 ```powershell
-python train_competitive.py
+python -m training.selfplay.train_competitive
 ```
 
 Its outputs are isolated under `checkpoints_competitive/`,
@@ -353,7 +353,7 @@ Its outputs are isolated under `checkpoints_competitive/`,
 After competitive training is complete, start the next phase with:
 
 ```powershell
-python train_post_selfplay.py
+python -m training.selfplay.train_post_selfplay
 ```
 
 It seeds an isolated run from `checkpoints_competitive/best_rule.pth` and
@@ -370,7 +370,7 @@ turns, and 10% random legal turns. Every checkpoint is evaluated against both
 the rule player and the fixed anchor:
 
 ```powershell
-python train_anchor_selfplay.py
+python -m training.selfplay.train_anchor_selfplay
 ```
 
 It starts from `checkpoints_competitive/best_rule.pth` and writes only to
@@ -388,15 +388,15 @@ yields so the card has more headroom for other work.
 
 ```bash
 # Auto-select (default)
-python train.py
+python -m training.selfplay.train
 
 # Force a specific device
-WHIST_DEVICE=cuda python train.py
-WHIST_DEVICE=cpu python train.py
+WHIST_DEVICE=cuda python -m training.selfplay.train
+WHIST_DEVICE=cpu python -m training.selfplay.train
 
 # Adjust the soft GPU cap if needed
-WHIST_GPU_CAP_PERCENT=60 python train.py
-WHIST_GPU_CAP_PERCENT=0 python train.py
+WHIST_GPU_CAP_PERCENT=60 python -m training.selfplay.train
+WHIST_GPU_CAP_PERCENT=0 python -m training.selfplay.train
 ```
 
 You can use the same variable for gameplay:

@@ -16,9 +16,9 @@ os.environ.setdefault("WHIST_TEAM_TERMINAL_REWARD", "4.0")
 
 import numpy as np
 
-import train
-from evaluate import rule_action
-from strong_eval import append_checkpoint_evaluation, evaluate_against_rule
+from training.selfplay import train
+from training.selfplay.evaluate import rule_action
+from training.selfplay.strong_eval import append_checkpoint_evaluation, evaluate_against_rule
 
 LOCK_PATH = "train_post_selfplay.lock"
 SOURCE_CHECKPOINT = os.path.join("checkpoints", "competitive", "best_rule.pth")

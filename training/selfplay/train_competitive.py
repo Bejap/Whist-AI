@@ -9,9 +9,9 @@ os.environ.setdefault("WHIST_RANDOMIZE_LEARNING_SEAT", "1")
 os.environ.setdefault("WHIST_SHAPING_SCALE", "0.25")
 os.environ.setdefault("WHIST_TEAM_TERMINAL_REWARD", "4.0")
 
-import train
-from evaluate import rule_action
-from strong_eval import append_checkpoint_evaluation, evaluate_against_rule
+from training.selfplay import train
+from training.selfplay.evaluate import rule_action
+from training.selfplay.strong_eval import append_checkpoint_evaluation, evaluate_against_rule
 
 LOCK_PATH = "train_competitive.lock"
 SCORES_CSV = os.path.join("graphs", "benchmarks", "competitive_checkpoint_scores.csv")

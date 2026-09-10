@@ -1,6 +1,6 @@
 import unittest
 
-from esmakker_cardplay_env import EsmakkerCardPlayEnv
+from training.cardplay.esmakker_cardplay_env import EsmakkerCardPlayEnv
 
 
 class EsmakkerCardPlayTests(unittest.TestCase):

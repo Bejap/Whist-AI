@@ -17,9 +17,9 @@ os.environ.setdefault("WHIST_TEAM_TERMINAL_REWARD", "4.0")
 import numpy as np
 from sb3_contrib import MaskablePPO
 
-import train
-from evaluate import rule_action
-from strong_eval import append_checkpoint_evaluation, evaluate_against_rule
+from training.selfplay import train
+from training.selfplay.evaluate import rule_action
+from training.selfplay.strong_eval import append_checkpoint_evaluation, evaluate_against_rule
 
 LOCK_PATH = "train_anchor_selfplay.lock"
 ANCHOR_PATH = os.path.join("checkpoints", "competitive", "best_rule.pth")

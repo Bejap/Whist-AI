@@ -66,7 +66,7 @@ def load_model():
     device = os.getenv("WHIST_DEVICE", "auto")
     ckpt_path, episode = latest_checkpoint()
     if ckpt_path is None:
-        print("No checkpoint found. Train the agent first with: python train.py")
+        print("No checkpoint found. Train the agent first with: python -m training.selfplay.train")
         sys.exit(1)
 
     print(f"Loading checkpoint: {ckpt_path} (episode {episode})")

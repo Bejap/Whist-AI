@@ -7,7 +7,7 @@ checkpoint and metric paths. Configure the duration with WHIST_TOTAL_EPISODES.
 import os
 import atexit
 
-import train
+from training.selfplay import train
 
 
 LOCK_PATH = "train_multiseat.lock"

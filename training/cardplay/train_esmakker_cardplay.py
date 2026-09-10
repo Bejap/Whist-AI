@@ -8,7 +8,7 @@ import torch
 from sb3_contrib import MaskablePPO
 from stable_baselines3.common.callbacks import BaseCallback
 
-from esmakker_cardplay_env import EsmakkerCardPlayEnv
+from training.cardplay.esmakker_cardplay_env import EsmakkerCardPlayEnv
 
 
 class CardPlayCheckpointCallback(BaseCallback):

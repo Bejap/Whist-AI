@@ -9,9 +9,9 @@ os.environ.setdefault("WHIST_RANDOMIZE_LEARNING_SEAT", "1")
 os.environ.setdefault("WHIST_SHAPING_SCALE", "0.15")
 os.environ.setdefault("WHIST_TEAM_TERMINAL_REWARD", "8.0")
 
-import train
+from training.selfplay import train
 from models import TransformerCardExtractor
-from strong_eval import append_checkpoint_evaluation, evaluate_against_rule
+from training.selfplay.strong_eval import append_checkpoint_evaluation, evaluate_against_rule
 
 LOCK_PATH = "train_strong.lock"
 SCORES_CSV = os.path.join("graphs", "benchmarks", "strong_checkpoint_scores.csv")
