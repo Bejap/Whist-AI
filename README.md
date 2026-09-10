@@ -150,6 +150,20 @@ Its outputs are isolated under `checkpoints_competitive/`,
 `rewards_competitive.csv`, `graphs_competitive/`, and
 `competitive_checkpoint_scores.csv`.
 
+### Post-competitive self-play
+
+After competitive training is complete, start the next phase with:
+
+```powershell
+python train_post_selfplay.py
+```
+
+It seeds an isolated run from `checkpoints_competitive/best_rule.pth` and
+mixes current/historical policies, the rule player (20%), and random legal
+play (10%). It does not modify competitive checkpoints. Results go to
+`checkpoints_post_selfplay/`, `graphs_post_selfplay/`, and
+`post_selfplay_checkpoint_scores.csv`.
+
 ### GPU usage
 
 By default, training/inference use `WHIST_DEVICE=auto`, which lets SB3/PyTorch
