@@ -24,6 +24,7 @@ DECISIONS_PATH = GRAPH_DIR / "bidding_decisions.csv"
 SUMMARY_PATH = GRAPH_DIR / "bid_summary.csv"
 SUMMARY_PLOT_PATH = GRAPH_DIR / "bid_distribution.png"
 BID_OUTCOME_PATH = GRAPH_DIR / "bid_outcomes.csv"
+BID_OUTCOME_REPORT_PATH = GRAPH_DIR / "bid_outcomes_report.txt"
 PLOT_PATH = GRAPH_DIR / "training_progress.png"
 BENCHMARK_PATH = GRAPH_DIR / "rule_benchmark.csv"
 BENCHMARK_PLOT_PATH = GRAPH_DIR / "rule_benchmark_progress.png"
@@ -444,6 +445,30 @@ class EsmakkerMetricsCallback(BaseCallback):
             writer = csv.DictWriter(handle, fieldnames=fields)
             writer.writeheader()
             writer.writerows(outcome_rows)
+
+        with BID_OUTCOME_REPORT_PATH.open("w", encoding="utf-8") as handle:
+            handle.write("ESMAKKER BID OUTCOME REPORT\n")
+            handle.write("=" * 30 + "\n\n")
+            handle.write(
+                "Each section starts with an action chosen by the learner.\n"
+                "The result is the outcome of the complete round containing\n"
+                "that action, not proof that the action alone caused it.\n\n"
+            )
+            if not outcome_rows:
+                handle.write("No learner bidding decisions recorded yet.\n")
+            for row in outcome_rows:
+                handle.write(f"ACTION: {row['action']}\n")
+                handle.write(f"  Chosen: {row['decisions']} times\n")
+                handle.write(f"  Completed rounds: {row['completed_rounds']}\n")
+                if row["positive_settlement_rate"] == "":
+                    handle.write("  Result: not enough completed rounds yet\n")
+                else:
+                    handle.write(
+                        f"  Positive settlement: {row['positive_settlement_rate']}%\n"
+                        f"  Contract success: {row['contract_success_rate']}%\n"
+                        f"  Average settlement: {row['average_settlement']} kr\n"
+                    )
+                handle.write("\n")
 
         if summary:
             labels = [row["action"] for row in reversed(summary)]

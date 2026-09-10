@@ -103,6 +103,11 @@ each action. The raw `bidding_decisions.csv` contains every learner decision
 in an auction, not each opponent bid. Its `final_contract` column is the
 winning bid after the complete bidding war.
 
+For a human-readable version, open
+`graphs/esmakker/bid_outcomes_report.txt`. It explains each action in plain
+language and makes clear that the settlement belongs to the complete round
+containing that action.
+
 The policy can choose every legal bid, including `7` through `13`, `Sol`,
 `Ren sol`, `Bordlaegger`, and pass. Its observation includes its hand and the
 current bid. The bid is therefore learned as a decision under uncertainty:
