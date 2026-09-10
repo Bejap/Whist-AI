@@ -29,7 +29,7 @@ class PaskrigTests(unittest.TestCase):
 
         self.assertEqual(winner, 2)
 
-    def test_ace_remains_high_outside_paskrig(self):
+    def test_ace_is_low_for_sol(self):
         game = EsmakkerGame(seed=1)
         game.current_bid = "sol"
 
@@ -40,7 +40,7 @@ class PaskrigTests(unittest.TestCase):
             (3, 10),  # Queen of clubs
         ])
 
-        self.assertEqual(winner, 0)
+        self.assertEqual(winner, 2)
 
     def test_single_winner_payout_is_zero_sum(self):
         game = EsmakkerGame(seed=1)

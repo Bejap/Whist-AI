@@ -287,7 +287,7 @@ class EsmakkerGame:
 
     def _rank(self, card: int):
         suit, rank = card // 13, card % 13
-        if self.current_bid == PASKRIG:
+        if self.current_bid == PASKRIG or self.current_bid in NOLO_BIDS:
             return -1 if rank == RANK_ACE else rank
         if suit == self.special_low_ace_suit and rank == RANK_ACE:
             return -1

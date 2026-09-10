@@ -21,6 +21,7 @@ PHASES = ("bidding", "choose_trump", "choose_partner", "play")
 OBS_CONTRACTS = BID_ORDER + (PASKRIG,)
 OBS_SIZE = 52 + 52 + 4 + 12 + 5 + 4 + 5 + 4 + 4 + 4
 OPENING_PASS_PENALTY = float(os.getenv("ESMAKKER_OPENING_PASS_PENALTY", "0.5"))
+SETTLEMENT_REWARD_SCALE = float(os.getenv("ESMAKKER_SETTLEMENT_REWARD_SCALE", "10.0"))
 
 
 class EsmakkerEnv(gym.Env):
@@ -83,9 +84,8 @@ class EsmakkerEnv(gym.Env):
         self.done = terminated
         reward = invalid_penalty - self.last_opening_pass_penalty
         if terminated:
-            reward += self.game.round_settlement.payments[self.learning_player] / 10.0
-            self.last_underbid_penalty = self._underbid_penalty()
-            reward -= self.last_underbid_penalty
+            payment = self.game.round_settlement.payments[self.learning_player]
+            reward += float(np.tanh(payment / SETTLEMENT_REWARD_SCALE))
         return self._observation(), reward, terminated, False, self._info()
 
     def action_masks(self, player=None):
@@ -192,6 +192,7 @@ class EsmakkerEnv(gym.Env):
         return {
             "phase": self.game.phase,
             "learning_player": self.learning_player,
+            "declarer": self.game.declarer,
             "action_mask": self.action_masks(),
             "settlement": self.game.round_settlement,
             "contract": self.game.current_bid,
@@ -200,14 +201,6 @@ class EsmakkerEnv(gym.Env):
             "underbid_penalty": self.last_underbid_penalty,
             "opening_pass_penalty": self.last_opening_pass_penalty,
         }
-
-    def _underbid_penalty(self):
-        if self.game.declarer != self.learning_player or self.game.current_bid not in NUMERIC_BIDS:
-            return 0.0
-        team = {self.game.declarer, self.game.partner_player}
-        team_tricks = sum(self.game.tricks_won[player] for player in team)
-        missed_value = max(0, team_tricks - NUMERIC_BIDS[self.game.current_bid])
-        return 0.05 * missed_value
 
     def _hand_strength(self, player):
         return sum(card % 13 >= 10 for card in self.game.hands[player])

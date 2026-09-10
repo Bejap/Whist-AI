@@ -346,6 +346,9 @@ class EsmakkerMetricsCallback(BaseCallback):
                 "episode": len(self.rows) + 1,
                 "timesteps": self.num_timesteps,
                 "contract": info.get("contract") or "none",
+                "learning_player": player,
+                "declarer": info.get("declarer"),
+                "learner_declarer": int(info.get("declarer") == player),
                 "success": int(settlement.contract_succeeded),
                 "payment": payment,
                 "learning_player_tricks": tricks[player],
@@ -361,12 +364,16 @@ class EsmakkerMetricsCallback(BaseCallback):
 
     def _write_metrics(self):
         fieldnames = [
-            "episode", "timesteps", "contract", "success", "payment",
+            "episode", "timesteps", "contract", "learning_player", "declarer",
+            "learner_declarer", "success", "payment",
             "learning_player_tricks", "value",
             "underbid_penalty",
         ]
         for row in self.rows:
             row.setdefault("underbid_penalty", 0.0)
+            row.setdefault("learning_player", "")
+            row.setdefault("declarer", "")
+            row.setdefault("learner_declarer", 0)
         with METRICS_PATH.open("w", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(handle, fieldnames=fieldnames)
             writer.writeheader()
@@ -396,17 +403,22 @@ class EsmakkerMetricsCallback(BaseCallback):
         bid_counts = Counter(
             row["action"] for row in self.decisions if row.get("phase") == "bidding"
         )
-        total_bids = sum(bid_counts.values())
+        contract_counts = Counter(
+            row.get("contract", "none")
+            for row in self.rows
+            if str(row.get("learner_declarer", "0")) == "1"
+        )
+        total_contracts = sum(contract_counts.values())
         summary = [
             {
-                "action": action,
+                "contract": contract,
                 "count": count,
-                "share_percent": round(100 * count / total_bids, 2) if total_bids else 0.0,
+                "share_percent": round(100 * count / total_contracts, 2) if total_contracts else 0.0,
             }
-            for action, count in bid_counts.most_common()
+            for contract, count in contract_counts.most_common()
         ]
         with SUMMARY_PATH.open("w", newline="", encoding="utf-8") as handle:
-            writer = csv.DictWriter(handle, fieldnames=["action", "count", "share_percent"])
+            writer = csv.DictWriter(handle, fieldnames=["contract", "count", "share_percent"])
             writer.writeheader()
             writer.writerows(summary)
 
@@ -472,13 +484,12 @@ class EsmakkerMetricsCallback(BaseCallback):
                 handle.write("\n")
 
         if summary:
-            labels = [row["action"] for row in reversed(summary)]
+            labels = [row["contract"] for row in reversed(summary)]
             counts = [row["count"] for row in reversed(summary)]
-            pass_rate = 100 * bid_counts["pass"] / total_bids
             fig, axis = plt.subplots(figsize=(9, max(3, 0.45 * len(labels) + 1)))
-            axis.barh(labels, counts, color=["tab:red" if label == "pass" else "tab:blue" for label in labels])
-            axis.set_xlabel("Number of learner bidding decisions")
-            axis.set_title(f"Esmakker bid choices: pass {pass_rate:.1f}% ({total_bids} decisions)")
+            axis.barh(labels, counts, color="tab:blue")
+            axis.set_xlabel("Completed rounds")
+            axis.set_title(f"Esmakker concluded contracts ({total_contracts} rounds)")
             for index, count in enumerate(counts):
                 axis.text(count, index, f"  {count}", va="center")
             fig.tight_layout()
@@ -521,6 +532,8 @@ def parse_args():
     )
     parser.add_argument("--snapshot-every", type=int, default=50_000)
     parser.add_argument("--league-size", type=int, default=10)
+    parser.add_argument("--n-steps", type=int, default=2_048)
+    parser.add_argument("--batch-size", type=int, default=512)
     parser.add_argument("--benchmark-every", type=int, default=5_000)
     parser.add_argument("--benchmark-games", type=int, default=100)
     parser.add_argument("--benchmark-max-steps", type=int, default=200)
@@ -531,6 +544,8 @@ def main():
     args = parse_args()
     if not 0.0 < args.gpu_memory_fraction <= 1.0:
         raise ValueError("--gpu-memory-fraction must be greater than 0 and at most 1")
+    if args.n_steps <= 0 or args.batch_size <= 0 or args.n_steps % args.batch_size != 0:
+        raise ValueError("--n-steps must be positive and divisible by --batch-size")
     if torch.cuda.is_available() and (
         str(args.device).startswith("cuda") or str(args.opponent_device).startswith("cuda")
     ):
@@ -551,8 +566,8 @@ def main():
         model = MaskablePPO(
             "MlpPolicy",
             env,
-            n_steps=512,
-            batch_size=128,
+            n_steps=args.n_steps,
+            batch_size=args.batch_size,
             n_epochs=4,
             gamma=0.995,
             learning_rate=3e-4,

@@ -21,6 +21,10 @@ This document describes the Esmakker variant used by `esmakker_env.py`.
 | Ren sol | Nolo | Declarer alone must win zero tricks. |
 | Bordlægger | Nolo | Declarer alone must win zero tricks; declarer's hand is visible to opponents. |
 
+For all nolo contracts, ace is the lowest card in normal tricks. This is the
+same ace-low ranking used by Paskrig; numeric contracts remain ace-high except
+for the documented special partner-card rule.
+
 The bid order is `7, 8, Sol, 9, 10, Ren sol, 11, 12, Bordlægger, 13`.
 
 ## Paskrig

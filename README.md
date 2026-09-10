@@ -101,12 +101,14 @@ Import-Csv graphs/esmakker/bidding_decisions.csv |
 	Select-Object -Last 20
 ```
 
-For a direct view of what the learner prefers to bid, open
-`graphs/esmakker/bid_distribution.png`. It shows every learner bid and pass
-ordered by frequency; the title gives the exact pass percentage. The matching
-`graphs/esmakker/bid_summary.csv` contains the count and percentage for each
-choice. A dominant red `pass` bar means the policy is avoiding auctions;
-growing bars for contracts indicate it is beginning to make commitments.
+For a direct view of the contracts the learning model actually won, open
+`graphs/esmakker/bid_distribution.png`. It counts one final contract per
+completed round where the randomized learning seat was the declarer, so an
+opponent-won auction and an intermediate bid later overbid do not appear as
+the model's conclusion. The matching `graphs/esmakker/bid_summary.csv`
+contains the count and percentage for each concluded model contract. Use
+`graphs/esmakker/bidding_decisions.csv` when you need the separate raw action
+distribution, including passes and intermediate bids.
 
 For outcomes per learner action, use
 `graphs/esmakker/bid_outcomes.csv`. It reports decisions, completed rounds,
@@ -129,16 +131,20 @@ word itself; it learns that a bid commits it to a trick target or nolo limit
 with a corresponding risk and reward. The implemented meanings are listed in
 `esmakker_rules.md`.
 
-For numeric contracts, the terminal reward also includes a small bounded
-underbid penalty when the declarer's team takes more tricks than it bid for.
-Settlement remains the main reward, so this discourages routinely safe low
-bids without making maximum bidding automatically optimal. Nolo contracts do
-not receive this penalty.
+For numeric contracts, the terminal reward is based on the actual settlement.
+Taking more tricks than the bid does not receive an additional punishment.
 
 An opening pass, when no bid is yet on the table, receives an immediate
 `-0.50` reward penalty by default. This prevents the policy from treating an
 all-pass auction as a free way to avoid decisions. Passing after another bid
 remains unpenalized. Set `ESMAKKER_OPENING_PASS_PENALTY` to tune the value.
+
+Terminal settlement rewards use a bounded utility transform rather than raw
+payment divided by ten: `tanh(payment / 10)`. This keeps rewards in roughly
+`[-1, 1]`, so a successful 13 or Bordlægger contract cannot overwhelm many
+ordinary wins while positive and negative bankroll changes remain distinct.
+Set `ESMAKKER_SETTLEMENT_REWARD_SCALE` to change the scale used by the
+transform.
 
 The fixed-partnership Whist training environments are retained as experiments.
 The intended long-term game is Esmakker Whist, implemented separately in
