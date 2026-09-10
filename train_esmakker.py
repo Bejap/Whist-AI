@@ -17,13 +17,16 @@ import matplotlib.pyplot as plt
 from esmakker_rl_env import BID_START, PASS_ACTION, NUM_ACTIONS, OBS_SIZE, EsmakkerEnv
 
 
-CHECKPOINT_DIR = Path("checkpoints") / "esmakker"
+RUN_NAME = "esmakker"
+CHECKPOINT_DIR = Path("checkpoints") / RUN_NAME
 LEAGUE_DIR = CHECKPOINT_DIR / "league"
-GRAPH_DIR = Path("graphs") / "esmakker"
+GRAPH_DIR = Path("graphs") / RUN_NAME
 METRICS_PATH = GRAPH_DIR / "training_metrics.csv"
 DECISIONS_PATH = GRAPH_DIR / "bidding_decisions.csv"
 SUMMARY_PATH = GRAPH_DIR / "bid_summary.csv"
 SUMMARY_PLOT_PATH = GRAPH_DIR / "bid_distribution.png"
+SUCCESS_SUMMARY_PATH = GRAPH_DIR / "contract_success_summary.csv"
+SUCCESS_SUMMARY_PLOT_PATH = GRAPH_DIR / "contract_success_rate.png"
 BID_OUTCOME_PATH = GRAPH_DIR / "bid_outcomes.csv"
 BID_OUTCOME_REPORT_PATH = GRAPH_DIR / "bid_outcomes_report.txt"
 PLOT_PATH = GRAPH_DIR / "training_progress.png"
@@ -422,6 +425,36 @@ class EsmakkerMetricsCallback(BaseCallback):
             writer.writeheader()
             writer.writerows(summary)
 
+        learner_contracts = [
+            row for row in self.rows
+            if str(row.get("learner_declarer", "0")) == "1"
+        ]
+        success_rows = []
+        for contract in dict.fromkeys(row.get("contract", "none") for row in learner_contracts):
+            contract_rows = [
+                row for row in learner_contracts
+                if row.get("contract", "none") == contract
+            ]
+            successful = [row for row in contract_rows if str(row.get("success", "0")) == "1"]
+            payments = [float(row["payment"]) for row in contract_rows]
+            success_rows.append({
+                "contract": contract,
+                "auctions_won": len(contract_rows),
+                "successful_contracts": len(successful),
+                "success_rate_percent": round(100 * len(successful) / len(contract_rows), 2),
+                "average_payment": round(sum(payments) / len(payments), 4),
+                "total_payment": round(sum(payments), 4),
+            })
+        success_rows.sort(key=lambda row: row["auctions_won"], reverse=True)
+        with SUCCESS_SUMMARY_PATH.open("w", newline="", encoding="utf-8") as handle:
+            fields = [
+                "contract", "auctions_won", "successful_contracts",
+                "success_rate_percent", "average_payment", "total_payment",
+            ]
+            writer = csv.DictWriter(handle, fieldnames=fields)
+            writer.writeheader()
+            writer.writerows(success_rows)
+
         outcome_rows = []
         for action in bid_counts:
             action_decisions = [
@@ -496,6 +529,25 @@ class EsmakkerMetricsCallback(BaseCallback):
             fig.savefig(SUMMARY_PLOT_PATH, dpi=140)
             plt.close(fig)
 
+        if success_rows:
+            labels = [row["contract"] for row in reversed(success_rows)]
+            rates = [row["success_rate_percent"] for row in reversed(success_rows)]
+            fig, axis = plt.subplots(figsize=(9, max(3, 0.45 * len(labels) + 1)))
+            axis.barh(labels, rates, color="tab:green")
+            axis.set_xlabel("Successful contracts (%)")
+            axis.set_xlim(0, 100)
+            axis.set_title("Esmakker learner contract success rate")
+            for index, row in enumerate(reversed(success_rows)):
+                axis.text(
+                    row["success_rate_percent"],
+                    index,
+                    f"  {row['successful_contracts']}/{row['auctions_won']}",
+                    va="center",
+                )
+            fig.tight_layout()
+            fig.savefig(SUCCESS_SUMMARY_PLOT_PATH, dpi=140)
+            plt.close(fig)
+
         recent = self.rows[-100:]
         episodes = np.arange(len(self.rows) - len(recent) + 1, len(self.rows) + 1)
         payments = np.asarray([float(row["payment"]) for row in recent])
@@ -520,6 +572,7 @@ class EsmakkerMetricsCallback(BaseCallback):
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--run-name", default="esmakker")
     parser.add_argument("--timesteps", type=int, default=250_000)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--resume", action="store_true")
@@ -542,6 +595,28 @@ def parse_args():
 
 def main():
     args = parse_args()
+    global RUN_NAME, CHECKPOINT_DIR, LEAGUE_DIR, GRAPH_DIR
+    global METRICS_PATH, DECISIONS_PATH, SUMMARY_PATH, SUMMARY_PLOT_PATH
+    global SUCCESS_SUMMARY_PATH, SUCCESS_SUMMARY_PLOT_PATH
+    global BID_OUTCOME_PATH, BID_OUTCOME_REPORT_PATH, PLOT_PATH
+    global BENCHMARK_PATH, BENCHMARK_PLOT_PATH
+    if not args.run_name or Path(args.run_name).name != args.run_name:
+        raise ValueError("--run-name must be a simple directory name")
+    RUN_NAME = args.run_name
+    CHECKPOINT_DIR = Path("checkpoints") / RUN_NAME
+    LEAGUE_DIR = CHECKPOINT_DIR / "league"
+    GRAPH_DIR = Path("graphs") / RUN_NAME
+    METRICS_PATH = GRAPH_DIR / "training_metrics.csv"
+    DECISIONS_PATH = GRAPH_DIR / "bidding_decisions.csv"
+    SUMMARY_PATH = GRAPH_DIR / "bid_summary.csv"
+    SUMMARY_PLOT_PATH = GRAPH_DIR / "bid_distribution.png"
+    SUCCESS_SUMMARY_PATH = GRAPH_DIR / "contract_success_summary.csv"
+    SUCCESS_SUMMARY_PLOT_PATH = GRAPH_DIR / "contract_success_rate.png"
+    BID_OUTCOME_PATH = GRAPH_DIR / "bid_outcomes.csv"
+    BID_OUTCOME_REPORT_PATH = GRAPH_DIR / "bid_outcomes_report.txt"
+    PLOT_PATH = GRAPH_DIR / "training_progress.png"
+    BENCHMARK_PATH = GRAPH_DIR / "rule_benchmark.csv"
+    BENCHMARK_PLOT_PATH = GRAPH_DIR / "rule_benchmark_progress.png"
     if not 0.0 < args.gpu_memory_fraction <= 1.0:
         raise ValueError("--gpu-memory-fraction must be greater than 0 and at most 1")
     if args.n_steps <= 0 or args.batch_size <= 0 or args.n_steps % args.batch_size != 0:

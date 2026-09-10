@@ -1,7 +1,12 @@
 import unittest
 
 from esmakker_env import NO_TRUMP, PASKRIG, EsmakkerGame
-from esmakker_rl_env import OPENING_PASS_PENALTY, PASS_ACTION, EsmakkerEnv
+from esmakker_rl_env import (
+    OPENING_PASS_PENALTY,
+    OPPONENT_COUNTER_BID_PROBABILITY,
+    PASS_ACTION,
+    EsmakkerEnv,
+)
 
 
 class PaskrigTests(unittest.TestCase):
@@ -73,6 +78,35 @@ class PaskrigTests(unittest.TestCase):
         self.assertFalse(terminated)
         self.assertEqual(info["opening_pass_penalty"], OPENING_PASS_PENALTY)
         self.assertAlmostEqual(reward, -OPENING_PASS_PENALTY)
+
+    def test_later_pass_is_reward_neutral(self):
+        env = EsmakkerEnv()
+        env.game = EsmakkerGame(seed=1)
+        env.game.current_bid = "7"
+        env.game.declarer = (env.game.current_player - 1) % 4
+        env.learning_player = env.game.current_player
+        env.done = False
+
+        _, reward, terminated, _, info = env.step(PASS_ACTION)
+
+        self.assertFalse(terminated)
+        self.assertNotIn("pass_penalty", info)
+        self.assertAlmostEqual(reward, 0.0)
+
+    def test_non_declarer_cannot_profit_from_failed_opponent_contract(self):
+        env = EsmakkerEnv()
+        env.game = EsmakkerGame(seed=1)
+        env.learning_player = 0
+        env.game.current_bid = "bordlaegger"
+        env.game.declarer = 1
+        env.game.tricks_won[1] = 2
+        env.game.phase = "complete"
+        env.game.round_settlement = env.game.settle()
+        self.assertEqual(env.game.round_settlement.payments[0], 8)
+        self.assertAlmostEqual(env._settlement_reward(), 0.0)
+
+    def test_opponent_counter_bid_probability_is_configured(self):
+        self.assertEqual(OPPONENT_COUNTER_BID_PROBABILITY, 0.15)
 
 
 if __name__ == "__main__":

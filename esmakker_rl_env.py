@@ -20,8 +20,11 @@ NUM_ACTIONS = PARTNER_START + 4
 PHASES = ("bidding", "choose_trump", "choose_partner", "play")
 OBS_CONTRACTS = BID_ORDER + (PASKRIG,)
 OBS_SIZE = 52 + 52 + 4 + 12 + 5 + 4 + 5 + 4 + 4 + 4
-OPENING_PASS_PENALTY = float(os.getenv("ESMAKKER_OPENING_PASS_PENALTY", "0.5"))
-SETTLEMENT_REWARD_SCALE = float(os.getenv("ESMAKKER_SETTLEMENT_REWARD_SCALE", "10.0"))
+OPENING_PASS_PENALTY = float(os.getenv("ESMAKKER_OPENING_PASS_PENALTY", "0.05"))
+SETTLEMENT_REWARD_SCALE = float(os.getenv("ESMAKKER_SETTLEMENT_REWARD_SCALE", "50.0"))
+OPPONENT_COUNTER_BID_PROBABILITY = float(
+    os.getenv("ESMAKKER_OPPONENT_COUNTER_BID_PROBABILITY", "0.15")
+)
 
 
 class EsmakkerEnv(gym.Env):
@@ -84,9 +87,17 @@ class EsmakkerEnv(gym.Env):
         self.done = terminated
         reward = invalid_penalty - self.last_opening_pass_penalty
         if terminated:
-            payment = self.game.round_settlement.payments[self.learning_player]
-            reward += float(np.tanh(payment / SETTLEMENT_REWARD_SCALE))
+            reward += self._settlement_reward()
         return self._observation(), reward, terminated, False, self._info()
+
+    def _settlement_reward(self):
+        settlement = self.game.round_settlement
+        if settlement is None:
+            return 0.0
+        if self.game.current_bid != PASKRIG and self.game.declarer != self.learning_player:
+            return 0.0
+        payment = settlement.payments[self.learning_player]
+        return payment / SETTLEMENT_REWARD_SCALE
 
     def action_masks(self, player=None):
         mask = np.zeros(NUM_ACTIONS, dtype=bool)
@@ -146,8 +157,15 @@ class EsmakkerEnv(gym.Env):
             player = self._decision_player()
             mask = self.action_masks(player)
             action = None
+            if (
+                self.game.phase == "bidding"
+                and self.game.current_bid is not None
+                and self.np_random.random() >= OPPONENT_COUNTER_BID_PROBABILITY
+            ):
+                action = PASS_ACTION
             if self.opponent_policy is not None:
-                action = self.opponent_policy.predict(self._observation(player), mask)
+                if action is None:
+                    action = self.opponent_policy.predict(self._observation(player), mask)
             if action is None or action < 0 or action >= NUM_ACTIONS or not mask[action]:
                 action = self._rule_action(player)
             self._take_action(player, action)

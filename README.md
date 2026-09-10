@@ -1,6 +1,36 @@
 # Whist-AI
 Creating an AI to play whist better than humans
 
+Esmakker training runs can be isolated with `--run-name`. For example,
+`--run-name esmakker_v2` writes checkpoints under
+`checkpoints/esmakker_v2/` and reports under `graphs/esmakker_v2/` without
+overwriting another run.
+
+## Esmakker card-play curriculum
+
+Step 1 trains card play under a fixed numeric contract, without bidding. The
+learner is always the declarer, receives a random trump and partner suit, and
+must learn legal trick-taking decisions before bidding is introduced. The
+separate trainer is `train_esmakker_cardplay.py`; its default output directory
+is `checkpoints/esmakker_cardplay_v1/` with metrics in
+`graphs/esmakker_cardplay_v1/cardplay_metrics.csv`.
+
+Start a fresh contract-7 curriculum run with:
+
+```powershell
+python -u train_esmakker_cardplay.py `
+	--run-name esmakker_cardplay_v1 `
+	--contract 7 `
+	--timesteps 500000 `
+	--device cuda `
+	--gpu-memory-fraction 0.30 `
+	--n-steps 2048 `
+	--batch-size 512
+```
+
+Use `--resume` with the same run name to continue it. The current bidding run
+under `esmakker_v2` is not modified by this curriculum.
+
 ## Setup
 
 ```bash
@@ -110,6 +140,11 @@ contains the count and percentage for each concluded model contract. Use
 `graphs/esmakker/bidding_decisions.csv` when you need the separate raw action
 distribution, including passes and intermediate bids.
 
+For contract quality, open `graphs/esmakker/contract_success_rate.png` or
+`graphs/esmakker/contract_success_summary.csv`. These show, for each contract
+won by the learning seat, the auctions won, successful completions, success
+rate, average payment, and total payment.
+
 For outcomes per learner action, use
 `graphs/esmakker/bid_outcomes.csv`. It reports decisions, completed rounds,
 positive-settlement rate, contract-success rate, and average settlement for
@@ -128,23 +163,34 @@ current bid. The bid is therefore learned as a decision under uncertainty:
 the policy is rewarded or penalized by the final contract settlement. It is
 not given a hand-written meaning for a bid, and it does not learn the Danish
 word itself; it learns that a bid commits it to a trick target or nolo limit
+
+For numeric and nolo contracts, terminal training reward is assigned only when
+the learning seat is the declarer. This prevents bidding Bordlaegger merely to
+provoke an opponent into overbidding and then collecting the opponent's failed
+contract payout. Paskrig remains seat-based because it has no declarer.
+
+During opponent bidding, an existing contract is counter-bid with probability
+`ESMAKKER_OPPONENT_COUNTER_BID_PROBABILITY` (default `0.15`); otherwise the
+opponent passes. Opening bids remain policy-driven. This keeps most auctions
+from escalating through unrealistic high contracts while preserving occasional
+competitive bidding. Set the variable before launching training to change it.
 with a corresponding risk and reward. The implemented meanings are listed in
 `esmakker_rules.md`.
 
 For numeric contracts, the terminal reward is based on the actual settlement.
 Taking more tricks than the bid does not receive an additional punishment.
 
-An opening pass, when no bid is yet on the table, receives an immediate
-`-0.50` reward penalty by default. This prevents the policy from treating an
-all-pass auction as a free way to avoid decisions. Passing after another bid
-remains unpenalized. Set `ESMAKKER_OPENING_PASS_PENALTY` to tune the value.
+An opening pass, when no bid is yet on the table, receives a small immediate
+`-0.05` reward penalty by default. This prevents an all-pass auction from
+being entirely risk-free without forcing the model to overbid. Passing after
+another bid is reward-neutral. Set `ESMAKKER_OPENING_PASS_PENALTY` to tune the
+opening-pass value.
 
-Terminal settlement rewards use a bounded utility transform rather than raw
-payment divided by ten: `tanh(payment / 10)`. This keeps rewards in roughly
-`[-1, 1]`, so a successful 13 or Bordlægger contract cannot overwhelm many
-ordinary wins while positive and negative bankroll changes remain distinct.
-Set `ESMAKKER_SETTLEMENT_REWARD_SCALE` to change the scale used by the
-transform.
+Terminal settlement rewards use the actual payment scaled by 50:
+`payment / 50`. This keeps rewards manageable while preserving the difference
+between a near miss and a larger loss. A successful 13 is `+1.0`, a successful
+Bordlægger is `+0.48`, and a successful Sol is `+0.12`. Set
+`ESMAKKER_SETTLEMENT_REWARD_SCALE` to tune the scale.
 
 The fixed-partnership Whist training environments are retained as experiments.
 The intended long-term game is Esmakker Whist, implemented separately in
