@@ -1,5 +1,6 @@
 import unittest
 from collections import Counter
+from unittest.mock import Mock
 
 from training.cardplay.esmakker_cardplay_env import (
     CONTRACT_SAMPLING_ORDER,
@@ -77,6 +78,23 @@ class EsmakkerCardPlayTests(unittest.TestCase):
         self.assertGreaterEqual(len(names), 3)
         known_names = {profile.name for profile in OPPONENT_PROFILES}
         self.assertTrue(all(name in known_names or name.startswith("sampled_") for name in names))
+
+    def test_learned_opponent_accepts_action_masks_keyword(self):
+        from training.cardplay.train_esmakker_cardplay import HistoricalOpponentPool
+
+        pool = HistoricalOpponentPool("checkpoints/esmakker_cardplay_v2")
+        pool.current_model = Mock()
+        pool.current_model.predict.return_value = (3, None)
+        mask = [True] * 52
+
+        action, _ = pool.predict([0.0] * 422, action_masks=mask, deterministic=True)
+
+        self.assertEqual(action, 3)
+        pool.current_model.predict.assert_called_once_with(
+            [0.0] * 422,
+            action_masks=mask,
+            deterministic=True,
+        )
 
     def test_observation_tracks_played_cards_and_void_suits(self):
         env = EsmakkerCardPlayEnv(contract="7")

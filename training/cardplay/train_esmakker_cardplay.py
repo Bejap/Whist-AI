@@ -38,10 +38,14 @@ class HistoricalOpponentPool:
             except (OSError, ValueError, KeyError):
                 continue
 
-    def predict(self, observation, mask):
+    def predict(self, observation, state=None, episode_start=None, action_masks=None, deterministic=True):
         if self.current_model is None:
             return None, None
-        return self.current_model.predict(observation, action_masks=mask, deterministic=True)
+        return self.current_model.predict(
+            observation,
+            action_masks=action_masks,
+            deterministic=deterministic,
+        )
 
 
 class CardPlayCheckpointCallback(BaseCallback):
