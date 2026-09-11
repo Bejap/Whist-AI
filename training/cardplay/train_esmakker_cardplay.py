@@ -30,6 +30,9 @@ class CardPlayCheckpointCallback(BaseCallback):
     def _on_rollout_end(self):
         if self.model.num_timesteps >= self.next_checkpoint:
             self.model.save(self.checkpoint_dir / "latest")
+            self.model.save(
+                self.checkpoint_dir / f"checkpoint_{self.model.num_timesteps:012d}"
+            )
             print(f"Card-play checkpoint saved: {self.checkpoint_dir / 'latest.zip'}")
             self.next_checkpoint = ((self.model.num_timesteps // self.every) + 1) * self.every
 

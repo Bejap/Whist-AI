@@ -132,6 +132,11 @@ This intentionally gives the central, commonly playable contracts more
 training exposure while retaining all numeric contracts. A running process
 must be restarted before it uses this changed distribution.
 
+The trainer preserves historical checkpoints as
+`checkpoint_<timesteps>.zip` at each 50,000-timestep boundary in addition to
+the rolling `latest.zip`. Restart the resumed v2 training command after this
+change so future learned-opponent benchmarks can use genuinely older models.
+
 The deterministic benchmark command is:
 
 ```powershell

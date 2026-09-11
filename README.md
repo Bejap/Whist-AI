@@ -65,6 +65,20 @@ genuine historical-opponent comparison, preserve an older v2 checkpoint
 under a separate filename before continuing training; `latest.zip` is a
 rolling file and is not a historical archive.
 
+The trainer now preserves `checkpoint_<timesteps>.zip` alongside
+`latest.zip` at each checkpoint boundary. After restarting training with this
+version, benchmark a later checkpoint against an earlier one:
+
+```powershell
+python -m training.cardplay.evaluate_cardplay `
+	--checkpoint checkpoints/esmakker_cardplay_v2/latest.zip `
+	--opponents learned `
+	--opponent-checkpoint checkpoints/esmakker_cardplay_v2/checkpoint_001000000.zip `
+	--contract all `
+	--episodes 500 `
+	--device cuda
+```
+
 Use `--resume` with the same run name to continue it. The current bidding run
 under `esmakker_v2` is not modified by this curriculum.
 
