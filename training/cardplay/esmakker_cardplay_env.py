@@ -24,11 +24,17 @@ class EsmakkerCardPlayEnv(gym.Env):
 
     metadata = {"render_modes": []}
 
-    def __init__(self, contract="7", render_mode=None):
+    def __init__(self, contract="7", render_mode=None, opponent_mode="rules", opponent_model=None):
         super().__init__()
         if contract != "all" and (contract not in BID_ORDER or contract not in NUMERIC_BIDS):
             raise ValueError("Card-play curriculum supports numeric contracts 7 through 13 or 'all'.")
+        if opponent_mode not in {"random", "rules", "learned"}:
+            raise ValueError("opponent_mode must be 'random', 'rules', or 'learned'.")
+        if opponent_mode == "learned" and opponent_model is None:
+            raise ValueError("learned opponents require opponent_model.")
         self.contract_mode = contract
+        self.opponent_mode = opponent_mode
+        self.opponent_model = opponent_model
         self.contract = contract
         self.render_mode = render_mode
         self.observation_space = spaces.Box(
@@ -110,7 +116,18 @@ class EsmakkerCardPlayEnv(gym.Env):
         while self.game.phase != "complete" and self.game.current_player != self.learning_player:
             player = self.game.current_player
             legal = self.game.legal_cards(player)
-            self._play_card(player, max(legal, key=lambda card: card % 13))
+            if self.opponent_mode == "random":
+                card = int(self.np_random.choice(legal))
+            elif self.opponent_mode == "learned":
+                action, _ = self.opponent_model.predict(
+                    self._observation(player),
+                    action_masks=self.action_masks(player),
+                    deterministic=True,
+                )
+                card = int(action) if int(action) in legal else int(self.np_random.choice(legal))
+            else:
+                card = max(legal, key=lambda candidate: candidate % 13)
+            self._play_card(player, card)
 
     def _play_card(self, player, card):
         if self.game.trick_cards:
@@ -124,10 +141,11 @@ class EsmakkerCardPlayEnv(gym.Env):
         team = {self.learning_player, self.game.partner_player}
         return sum(self.game.tricks_won[player] for player in team)
 
-    def _observation(self):
+    def _observation(self, player=None):
+        player = self.learning_player if player is None else player
         observation = np.zeros(CARD_PLAY_OBS_SIZE, dtype=np.float32)
         index = 0
-        for card in self.game.hands[self.learning_player]:
+        for card in self.game.hands[player]:
             observation[index + card] = 1.0
         index += 52
         for _, card in self.game.trick_cards:
@@ -139,7 +157,7 @@ class EsmakkerCardPlayEnv(gym.Env):
         index += 12
         observation[index + self.game.trump_suit] = 1.0
         index += 5
-        observation[index + self.learning_player] = 1.0
+        observation[index + player] = 1.0
         index += 4
         observation[index + self.game.declarer] = 1.0
         index += 5

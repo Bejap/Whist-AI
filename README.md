@@ -47,6 +47,24 @@ In these files, `success` means the learner received positive settlement;
 distinction matters when the learner is defending.
 Use the same `--seed` and episode count when comparing checkpoints.
 
+To compare opponent tables, run all three modes:
+
+```powershell
+python -m training.cardplay.evaluate_cardplay `
+	--checkpoint checkpoints/esmakker_cardplay_v2/latest.zip `
+	--opponents all `
+	--opponent-checkpoint checkpoints/esmakker_cardplay_v2/latest.zip `
+	--contract all `
+	--episodes 500 `
+	--device cuda
+```
+
+The tables are `random`, `rules`, and `learned`. Learned opponents must use a
+checkpoint with the same 422-feature observation and 52-action space. For a
+genuine historical-opponent comparison, preserve an older v2 checkpoint
+under a separate filename before continuing training; `latest.zip` is a
+rolling file and is not a historical archive.
+
 Use `--resume` with the same run name to continue it. The current bidding run
 under `esmakker_v2` is not modified by this curriculum.
 
