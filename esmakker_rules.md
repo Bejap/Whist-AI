@@ -67,7 +67,7 @@ For numeric contracts, the contract value on success is:
 
 `base bid value + (team tricks - 6)`
 
-Base values are: 7 = 0, 8 = 1, 9 = 2, 10 = 3, 11 = 4, 12 = 5, 13 = 50.
+Base values are: 7 = 0, 8 = 1, 9 = 2, 10 = 3, 11 = 4, 12 = 5, 13 = 25.
 
 If a numeric contract fails, each declarer-team player pays one defender:
 

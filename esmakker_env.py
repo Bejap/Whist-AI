@@ -20,6 +20,7 @@ BID_ORDER = ("7", "8", "sol", "9", "10", "ren_sol", "11", "12", "bordlaegger", "
 NUMERIC_BIDS = {str(number): number for number in range(7, 14)}
 NOLO_BIDS = {"sol", "ren_sol", "bordlaegger"}
 NOLO_VALUES = {"sol": 2, "ren_sol": 4, "bordlaegger": 8}
+CONTRACT_13_REWARD_SCALE = 25.0
 PASKRIG = "paskrig"
 PASKRIG_TRIGGER = os.getenv("PASKRIG_TRIGGER", "auto_on_all_pass")
 if PASKRIG_TRIGGER not in {"auto_on_all_pass", "callable_bid"}:
@@ -200,7 +201,7 @@ class EsmakkerGame:
         team = {self.declarer, self.partner_player}
         team_tricks = sum(self.tricks_won[player] for player in team)
         target = NUMERIC_BIDS[self.current_bid]
-        base = 50 if target == 13 else max(0, target - 7)
+        base = 25 if target == 13 else max(0, target - 7)
         succeeded = team_tricks >= target
         value = base + (team_tricks - 6) if succeeded and target != 13 else base
         if not succeeded:

@@ -105,6 +105,32 @@ class PaskrigTests(unittest.TestCase):
         self.assertEqual(env.game.round_settlement.payments[0], 8)
         self.assertAlmostEqual(env._settlement_reward(), 0.0)
 
+    def test_contract_13_uses_reduced_base_value(self):
+        game = EsmakkerGame(seed=1)
+        game.current_bid = "13"
+        game.declarer = 0
+        game.partner_player = 1
+        game.tricks_won = [7, 6, 0, 0]
+
+        settlement = game.settle()
+
+        self.assertTrue(settlement.contract_succeeded)
+        self.assertEqual(settlement.value, 25)
+        self.assertEqual(settlement.payments, (25, 25, -25, -25))
+
+    def test_successful_contract_13_keeps_full_normalized_reward(self):
+        env = EsmakkerEnv()
+        env.game = EsmakkerGame(seed=1)
+        env.game.current_bid = "13"
+        env.game.declarer = 0
+        env.game.partner_player = 1
+        env.game.tricks_won = [7, 6, 0, 0]
+        env.game.phase = "complete"
+        env.learning_player = 0
+        env.game.round_settlement = env.game.settle()
+
+        self.assertEqual(env._settlement_reward(), 1.0)
+
     def test_opponent_counter_bid_probability_is_configured(self):
         self.assertEqual(OPPONENT_COUNTER_BID_PROBABILITY, 0.15)
 

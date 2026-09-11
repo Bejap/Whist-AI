@@ -6,7 +6,13 @@ import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
 
-from esmakker_env import BID_ORDER, NUMERIC_BIDS, PASKRIG, EsmakkerGame
+from esmakker_env import (
+    BID_ORDER,
+    CONTRACT_13_REWARD_SCALE,
+    NUMERIC_BIDS,
+    PASKRIG,
+    EsmakkerGame,
+)
 from whist_env import NUM_CARDS, NUM_PLAYERS
 
 
@@ -97,7 +103,12 @@ class EsmakkerEnv(gym.Env):
         if self.game.current_bid != PASKRIG and self.game.declarer != self.learning_player:
             return 0.0
         payment = settlement.payments[self.learning_player]
-        return payment / SETTLEMENT_REWARD_SCALE
+        scale = (
+            CONTRACT_13_REWARD_SCALE
+            if self.game.current_bid == "13"
+            else SETTLEMENT_REWARD_SCALE
+        )
+        return payment / scale
 
     def action_masks(self, player=None):
         mask = np.zeros(NUM_ACTIONS, dtype=bool)
