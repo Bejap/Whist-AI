@@ -42,6 +42,9 @@ python -m training.cardplay.evaluate_cardplay `
 The benchmark writes per-game results to
 `graphs/esmakker_cardplay_v2/cardplay_benchmark_games.csv` and aggregate
 contract results to `graphs/esmakker_cardplay_v2/cardplay_benchmark_summary.csv`.
+In these files, `success` means the learner received positive settlement;
+`contract_success` records whether the declarer's contract succeeded. This
+distinction matters when the learner is defending.
 Use the same `--seed` and episode count when comparing checkpoints.
 
 Use `--resume` with the same run name to continue it. The current bidding run

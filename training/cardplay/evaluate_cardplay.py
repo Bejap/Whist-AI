@@ -40,7 +40,8 @@ def evaluate_checkpoint(checkpoint, contracts, episodes, seed, device, max_steps
                 "episode": episode + 1,
                 "seed": episode_seed,
                 "completed": int(terminated and settlement is not None),
-                "success": int(settlement.contract_succeeded) if settlement else 0,
+                "contract_success": int(settlement.contract_succeeded) if settlement else 0,
+                "success": int(payment > 0) if settlement else 0,
                 "payment": payment,
                 "team_tricks": info["team_tricks"],
                 "steps": steps,
@@ -112,7 +113,10 @@ def main():
     write_csv(
         output_dir / "cardplay_benchmark_games.csv",
         rows,
-        ["contract", "episode", "seed", "completed", "success", "payment", "team_tricks", "steps"],
+        [
+            "contract", "episode", "seed", "completed", "success",
+            "contract_success", "payment", "team_tricks", "steps",
+        ],
     )
     write_csv(
         output_dir / "cardplay_benchmark_summary.csv",
