@@ -28,6 +28,37 @@ class EsmakkerCardPlayTests(unittest.TestCase):
         self.assertIsNotNone(info["settlement"])
         self.assertEqual(sum(info["tricks_won"]), 13)
 
+    def test_all_contract_mode_samples_numeric_contracts(self):
+        env = EsmakkerCardPlayEnv(contract="all")
+        contracts = {env.reset(seed=seed)[1]["contract"] for seed in range(30)}
+
+        self.assertGreater(len(contracts), 1)
+        self.assertTrue(contracts <= {str(number) for number in range(7, 14)})
+
+    def test_observation_tracks_played_cards_and_void_suits(self):
+        env = EsmakkerCardPlayEnv(contract="7")
+        env.reset(seed=11)
+        action = int(next(card for card, legal in enumerate(env.action_masks()) if legal))
+        env.step(action)
+
+        observation = env._observation()
+        played_cards = observation[146:198]
+        self.assertGreaterEqual(sum(played_cards), 1)
+        self.assertEqual(played_cards[action], 1.0)
+
+        ownership_start = 198
+        ownership = observation[ownership_start:ownership_start + 208].reshape(4, 52)
+        played_player = next(player for player in range(4) if ownership[player, action])
+        self.assertTrue(env.played_by[played_player, action])
+
+        player = (env.learning_player + 1) % 4
+        env.game.current_player = player
+        env.game.trick_cards = [(env.learning_player, 0)]
+        env.game.hands[player] = [13]
+        env._play_card(player, 13)
+        void_features = env._observation()[406:422]
+        self.assertEqual(void_features[player * 4], 1.0)
+
     def test_team_tricks_does_not_double_count_declarer_partner(self):
         env = EsmakkerCardPlayEnv(contract="7")
         matching_seed = next(

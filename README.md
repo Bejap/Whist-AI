@@ -28,8 +28,41 @@ python -u -m training.cardplay.train_esmakker_cardplay `
 	--batch-size 512
 ```
 
+Benchmark a trained specialist deterministically across all numeric contracts
+with fixed seeds:
+
+```powershell
+python -m training.cardplay.evaluate_cardplay `
+	--checkpoint checkpoints/esmakker_cardplay_v2/latest.zip `
+	--contract all `
+	--episodes 500 `
+	--device cuda
+```
+
+The benchmark writes per-game results to
+`graphs/esmakker_cardplay_v2/cardplay_benchmark_games.csv` and aggregate
+contract results to `graphs/esmakker_cardplay_v2/cardplay_benchmark_summary.csv`.
+Use the same `--seed` and episode count when comparing checkpoints.
+
 Use `--resume` with the same run name to continue it. The current bidding run
 under `esmakker_v2` is not modified by this curriculum.
+
+The upgraded specialist can train across numeric contracts 7 through 13 and
+tracks played cards, which player played each card, and inferred player/suit
+voids. Because this changes
+the observation and policy architecture, start it under a new run name rather
+than resuming the older contract-7 checkpoint:
+
+```powershell
+python -u -m training.cardplay.train_esmakker_cardplay `
+	--run-name esmakker_cardplay_v2 `
+	--contract all `
+	--timesteps 1000000 `
+	--device cuda `
+	--gpu-memory-fraction 0.30 `
+	--n-steps 2048 `
+	--batch-size 512
+```
 
 ## Setup
 

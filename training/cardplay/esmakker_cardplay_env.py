@@ -10,6 +10,7 @@ from whist_env import NUM_CARDS, NUM_PLAYERS
 
 CARD_PLAY_REWARD_SCALE = 50.0
 TRICK_REWARD = 0.1
+CARD_PLAY_OBS_SIZE = OBS_SIZE + NUM_CARDS + (NUM_PLAYERS * NUM_CARDS) + (NUM_PLAYERS * 4)
 
 
 class EsmakkerCardPlayEnv(gym.Env):
@@ -19,22 +20,29 @@ class EsmakkerCardPlayEnv(gym.Env):
 
     def __init__(self, contract="7", render_mode=None):
         super().__init__()
-        if contract not in BID_ORDER or contract not in NUMERIC_BIDS:
-            raise ValueError("Card-play curriculum currently supports numeric contracts 7 through 13.")
+        if contract != "all" and (contract not in BID_ORDER or contract not in NUMERIC_BIDS):
+            raise ValueError("Card-play curriculum supports numeric contracts 7 through 13 or 'all'.")
+        self.contract_mode = contract
         self.contract = contract
         self.render_mode = render_mode
-        self.observation_space = spaces.Box(0.0, 1.0, shape=(OBS_SIZE,), dtype=np.float32)
+        self.observation_space = spaces.Box(
+            0.0, 1.0, shape=(CARD_PLAY_OBS_SIZE,), dtype=np.float32
+        )
         self.action_space = spaces.Discrete(NUM_CARDS)
         self.game = EsmakkerGame()
         self.learning_player = 0
         self.done = False
         self.previous_team_tricks = 0
+        self.void_suits = np.zeros((NUM_PLAYERS, 4), dtype=bool)
+        self.played_by = np.zeros((NUM_PLAYERS, NUM_CARDS), dtype=bool)
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         game_seed = int(self.np_random.integers(2**31))
         self.game = EsmakkerGame(seed=game_seed)
         self.learning_player = int(self.np_random.integers(NUM_PLAYERS))
+        if self.contract_mode == "all":
+            self.contract = str(self.np_random.integers(7, 14))
         self.game.current_bid = self.contract
         self.game.declarer = self.learning_player
         self.game.trump_suit = int(self.np_random.integers(4))
@@ -48,6 +56,8 @@ class EsmakkerCardPlayEnv(gym.Env):
         self.game._start_tricks()
         self.done = False
         self.previous_team_tricks = 0
+        self.void_suits.fill(False)
+        self.played_by.fill(False)
         self._advance_opponents()
         return self._observation(), self._info()
 
@@ -61,7 +71,7 @@ class EsmakkerCardPlayEnv(gym.Env):
             action = int(np.flatnonzero(mask)[0])
             invalid_penalty = -0.25
         before = self._team_tricks()
-        self.game.play_card(self.learning_player, action)
+        self._play_card(self.learning_player, action)
         self._advance_opponents()
         after = self._team_tricks()
         trick_reward = TRICK_REWARD * (after - before)
@@ -86,14 +96,22 @@ class EsmakkerCardPlayEnv(gym.Env):
         while self.game.phase != "complete" and self.game.current_player != self.learning_player:
             player = self.game.current_player
             legal = self.game.legal_cards(player)
-            self.game.play_card(player, max(legal, key=lambda card: card % 13))
+            self._play_card(player, max(legal, key=lambda card: card % 13))
+
+    def _play_card(self, player, card):
+        if self.game.trick_cards:
+            lead_suit = self.game.trick_cards[0][1] // 13
+            if not any(held_card // 13 == lead_suit for held_card in self.game.hands[player]):
+                self.void_suits[player, lead_suit] = True
+        self.played_by[player, card] = True
+        self.game.play_card(player, card)
 
     def _team_tricks(self):
         team = {self.learning_player, self.game.partner_player}
         return sum(self.game.tricks_won[player] for player in team)
 
     def _observation(self):
-        observation = np.zeros(OBS_SIZE, dtype=np.float32)
+        observation = np.zeros(CARD_PLAY_OBS_SIZE, dtype=np.float32)
         index = 0
         for card in self.game.hands[self.learning_player]:
             observation[index + card] = 1.0
@@ -118,6 +136,15 @@ class EsmakkerCardPlayEnv(gym.Env):
         index += 4
         if self.game.partner_revealed:
             observation[index + self.game.partner_player] = 1.0
+        index += 4
+        cards_in_hands = {card for hand in self.game.hands for card in hand}
+        for card in range(NUM_CARDS):
+            if card not in cards_in_hands:
+                observation[index + card] = 1.0
+        index += NUM_CARDS
+        observation[index:index + NUM_PLAYERS * NUM_CARDS] = self.played_by.reshape(-1).astype(np.float32)
+        index += NUM_PLAYERS * NUM_CARDS
+        observation[index:index + NUM_PLAYERS * 4] = self.void_suits.reshape(-1).astype(np.float32)
         return observation
 
     def _info(self):

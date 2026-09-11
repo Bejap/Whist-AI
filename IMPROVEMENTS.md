@@ -9,10 +9,28 @@ Maintain a probability distribution over unobserved opponent hands, updated
 via Bayes' rule as cards are played.  The agent can condition its policy on
 these beliefs to, e.g., avoid leading into a known void.
 
-## 2. Bidding / contract phase
-Real Whist variants include a bidding phase where players declare how many
-tricks their team will win.  Training an agent that optimises for making
-(or defeating) a contract rewards more precise, goal-directed play.
+## 2. Phase-separated full-game agent
+The full-game agent should be composed from specialist policies rather than a
+single monolithic policy that must learn bidding, declaration, and card play
+through one large action head.
+
+The controller should delegate by phase:
+
+- **Bidding specialist** – chooses a contract or pass.
+- **Declaration specialist** – chooses trump and the partner suit.
+- **Card-play specialist** – chooses legal cards during trick play.
+- **Full-game controller** – owns rules flow, masks, phase routing, and final
+  settlement.
+
+Training should proceed in stages. First preserve the fixed-contract
+card-play policy as a frozen baseline. Then train bidding and declaration
+against that specialist so a bid is judged by the resulting contract
+settlement. Finally integrate the specialists and benchmark the combined agent
+against fixed-rule opponents before attempting joint fine-tuning.
+
+The existing `training/esmakker/train_esmakker.py` is a monolithic reference
+implementation with a 71-action policy. It should not be treated as the target
+step-2 trainer or resumed for this architecture.
 
 ## 3. Improved reward shaping
 Current shaping rewards are hand-coded heuristics.  Alternatives:

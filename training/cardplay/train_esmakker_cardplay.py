@@ -1,4 +1,4 @@
-"""Train fixed-contract Esmakker card play before introducing bidding."""
+"""Train a contract-conditioned Esmakker card-play specialist."""
 
 import argparse
 import csv
@@ -76,7 +76,12 @@ class CardPlayMetricsCallback(BaseCallback):
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--contract", choices=[str(number) for number in range(7, 14)], default="7")
+    parser.add_argument(
+        "--contract",
+        choices=[str(number) for number in range(7, 14)] + ["all"],
+        default="7",
+        help="Numeric contract to train or 'all' to sample contracts 7 through 13.",
+    )
     parser.add_argument("--run-name", default="esmakker_cardplay_v1")
     parser.add_argument("--timesteps", type=int, default=500_000)
     parser.add_argument("--device", default="auto")
@@ -121,7 +126,7 @@ def main():
             gamma=0.995,
             learning_rate=3e-4,
             ent_coef=0.01,
-            policy_kwargs={"net_arch": [256, 256]},
+            policy_kwargs={"net_arch": [512, 512, 256]},
             device=args.device,
             verbose=1,
         )
