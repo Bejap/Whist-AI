@@ -3,6 +3,7 @@
 import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
+from dataclasses import dataclass
 
 from esmakker_env import BID_ORDER, CONTRACT_13_REWARD_SCALE, NUMERIC_BIDS, EsmakkerGame
 from esmakker_rl_env import OBS_CONTRACTS, OBS_SIZE
@@ -19,22 +20,53 @@ CONTRACT_SAMPLING_WEIGHTS = np.asarray(
 CONTRACT_SAMPLING_PROBABILITIES = CONTRACT_SAMPLING_WEIGHTS / CONTRACT_SAMPLING_WEIGHTS.sum()
 
 
+@dataclass(frozen=True)
+class OpponentProfile:
+    name: str
+    base: str
+    random_probability: float = 0.0
+    rule_probability: float = 0.0
+
+
+OPPONENT_PROFILES = (
+    OpponentProfile("random", "random"),
+    OpponentProfile("rules", "rules"),
+    OpponentProfile("learned", "learned"),
+    OpponentProfile("learned_random_05", "learned", 0.05),
+    OpponentProfile("learned_random_10", "learned", 0.10),
+    OpponentProfile("learned_random_15", "learned", 0.15),
+    OpponentProfile("rules_random_40", "rules", 0.40),
+    OpponentProfile("rules_random_60", "rules", 0.60),
+    OpponentProfile("learned_rules_05", "learned", 0.0, 0.05),
+    OpponentProfile("learned_rules_10", "learned", 0.0, 0.10),
+    OpponentProfile("learned_rules_15", "learned", 0.0, 0.15),
+    OpponentProfile("sampled_gamble", "sampled"),
+)
+
+
 class EsmakkerCardPlayEnv(gym.Env):
     """Train card play for one fixed contract without any bidding decisions."""
 
     metadata = {"render_modes": []}
 
-    def __init__(self, contract="7", render_mode=None, opponent_mode="rules", opponent_model=None):
+    def __init__(
+        self, contract="7", render_mode=None, opponent_mode="rules", opponent_model=None,
+        opponent_profiles=None,
+    ):
         super().__init__()
         if contract != "all" and (contract not in BID_ORDER or contract not in NUMERIC_BIDS):
             raise ValueError("Card-play curriculum supports numeric contracts 7 through 13 or 'all'.")
-        if opponent_mode not in {"random", "rules", "learned"}:
-            raise ValueError("opponent_mode must be 'random', 'rules', or 'learned'.")
+        if opponent_mode not in {"random", "rules", "learned", "mixture"}:
+            raise ValueError("opponent_mode must be random, rules, learned, or mixture.")
         if opponent_mode == "learned" and opponent_model is None:
             raise ValueError("learned opponents require opponent_model.")
         self.contract_mode = contract
         self.opponent_mode = opponent_mode
         self.opponent_model = opponent_model
+        self.opponent_profiles = tuple(opponent_profiles or OPPONENT_PROFILES)
+        if not self.opponent_profiles:
+            raise ValueError("opponent_profiles must not be empty.")
+        self.current_opponent_profile = None
         self.contract = contract
         self.render_mode = render_mode
         self.observation_space = spaces.Box(
@@ -52,6 +84,26 @@ class EsmakkerCardPlayEnv(gym.Env):
         super().reset(seed=seed)
         game_seed = int(self.np_random.integers(2**31))
         self.game = EsmakkerGame(seed=game_seed)
+        if self.opponent_mode == "mixture":
+            self.current_opponent_profile = self.opponent_profiles[
+                int(self.np_random.integers(len(self.opponent_profiles)))
+            ]
+            if self.current_opponent_profile.base == "sampled":
+                base = str(self.np_random.choice(("random", "rules", "learned"), p=(0.20, 0.30, 0.50)))
+                random_probability = float(self.np_random.choice((0.0, 0.05, 0.10, 0.15, 0.25)))
+                rule_probability = float(self.np_random.choice((0.0, 0.05, 0.10, 0.15)))
+                if random_probability + rule_probability > 0.40:
+                    rule_probability = 0.0
+                self.current_opponent_profile = OpponentProfile(
+                    f"sampled_{base}_r{random_probability:.2f}_h{rule_probability:.2f}",
+                    base,
+                    random_probability,
+                    rule_probability,
+                )
+        else:
+            self.current_opponent_profile = OpponentProfile(self.opponent_mode, self.opponent_mode)
+        if hasattr(self.opponent_model, "begin_round"):
+            self.opponent_model.begin_round(self.np_random)
         self.learning_player = int(self.np_random.integers(NUM_PLAYERS))
         self.game.declarer = int(self.np_random.integers(NUM_PLAYERS))
         if self.contract_mode == "all":
@@ -116,15 +168,29 @@ class EsmakkerCardPlayEnv(gym.Env):
         while self.game.phase != "complete" and self.game.current_player != self.learning_player:
             player = self.game.current_player
             legal = self.game.legal_cards(player)
-            if self.opponent_mode == "random":
+            profile = self.current_opponent_profile
+            random_probability = profile.random_probability
+            rule_probability = profile.rule_probability
+            draw = self.np_random.random()
+            if draw < random_probability:
                 card = int(self.np_random.choice(legal))
-            elif self.opponent_mode == "learned":
-                action, _ = self.opponent_model.predict(
-                    self._observation(player),
-                    action_masks=self.action_masks(player),
-                    deterministic=True,
-                )
-                card = int(action) if int(action) in legal else int(self.np_random.choice(legal))
+            elif draw < random_probability + rule_probability:
+                card = max(legal, key=lambda candidate: candidate % 13)
+            elif profile.base == "learned":
+                if self.opponent_model is None:
+                    card = max(legal, key=lambda candidate: candidate % 13)
+                else:
+                    action, _ = self.opponent_model.predict(
+                        self._observation(player),
+                        action_masks=self.action_masks(player),
+                        deterministic=True,
+                    )
+                    if action is None:
+                        card = max(legal, key=lambda candidate: candidate % 13)
+                    else:
+                        card = int(action) if int(action) in legal else int(self.np_random.choice(legal))
+            elif profile.base == "random":
+                card = int(self.np_random.choice(legal))
             else:
                 card = max(legal, key=lambda candidate: candidate % 13)
             self._play_card(player, card)

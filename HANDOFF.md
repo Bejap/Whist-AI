@@ -137,6 +137,22 @@ The trainer preserves historical checkpoints as
 the rolling `latest.zip`. Restart the resumed v2 training command after this
 change so future learned-opponent benchmarks can use genuinely older models.
 
+The card-play trainer now uses an opponent mixture per hand. Profiles include
+random play, rules play, historical learned play, learned play with 5%, 10%,
+or 15% random actions, rules play with 40% or 60% random actions, and learned
+play with 5%, 10%, or 15% highest-card rule actions. Every perturbation is
+masked to legal cards. This profile is fixed for the hand, while its action
+choices vary per opponent decision. A sampled-gamble profile also chooses a
+base style and bounded random/rule perturbation rates per hand, so the learner
+sees combinations outside the named profiles.
+
+The current card-play learner should remain one shared policy for now. A
+separate declarer policy and teammate policy can help specialize objectives,
+but splitting too early removes shared card-counting and trick knowledge and
+reduces data per model. First train the shared policy against this opponent
+mixture; later compare shared versus role-specific policies using the same
+historical-opponent benchmark.
+
 The deterministic benchmark command is:
 
 ```powershell

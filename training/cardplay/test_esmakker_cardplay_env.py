@@ -3,6 +3,7 @@ from collections import Counter
 
 from training.cardplay.esmakker_cardplay_env import (
     CONTRACT_SAMPLING_ORDER,
+    OPPONENT_PROFILES,
     EsmakkerCardPlayEnv,
 )
 
@@ -65,6 +66,17 @@ class EsmakkerCardPlayTests(unittest.TestCase):
 
         self.assertEqual(observation[129 + env.game.declarer], 1.0)
         self.assertEqual(observation[129 + env.learning_player], 0.0)
+
+    def test_mixture_profiles_are_named_and_actions_remain_legal(self):
+        env = EsmakkerCardPlayEnv(contract="7", opponent_mode="mixture", opponent_profiles=OPPONENT_PROFILES)
+        names = set()
+        for seed in range(30):
+            env.reset(seed=seed)
+            names.add(env.current_opponent_profile.name)
+
+        self.assertGreaterEqual(len(names), 3)
+        known_names = {profile.name for profile in OPPONENT_PROFILES}
+        self.assertTrue(all(name in known_names or name.startswith("sampled_") for name in names))
 
     def test_observation_tracks_played_cards_and_void_suits(self):
         env = EsmakkerCardPlayEnv(contract="7")

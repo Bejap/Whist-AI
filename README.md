@@ -91,6 +91,12 @@ than resuming the older contract-7 checkpoint:
 With `--contract all`, numeric contracts are sampled using Zipf weighting in
 the order `9, 8, 7, 10, 11, 12, 13`, with weights `1, 1/2, 1/3, ... 1/7`.
 
+Training now samples a fixed opponent profile per hand from random, rules,
+historical learned, and perturbed variants. Perturbations always choose a
+legal card. Historical learned opponents are selected from archived
+`checkpoint_<timesteps>.zip` files when available; before archives exist, the
+learned profile safely falls back to rules play.
+
 ```powershell
 python -u -m training.cardplay.train_esmakker_cardplay `
 	--run-name esmakker_cardplay_v2 `

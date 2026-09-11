@@ -9,6 +9,39 @@ from sb3_contrib import MaskablePPO
 from stable_baselines3.common.callbacks import BaseCallback
 
 from training.cardplay.esmakker_cardplay_env import EsmakkerCardPlayEnv
+from training.cardplay.esmakker_cardplay_env import OPPONENT_PROFILES
+
+
+class HistoricalOpponentPool:
+    """Choose one compatible historical checkpoint for each training hand."""
+
+    def __init__(self, directory, device="cpu"):
+        self.directory = Path(directory)
+        self.device = device
+        self.paths = []
+        self.models = {}
+        self.current_model = None
+        self.refresh()
+
+    def refresh(self):
+        self.paths = sorted(self.directory.glob("checkpoint_*.zip"))
+
+    def begin_round(self, rng):
+        self.current_model = None
+        for _ in range(len(self.paths)):
+            path = self.paths[int(rng.integers(len(self.paths)))]
+            try:
+                if path not in self.models:
+                    self.models[path] = MaskablePPO.load(path, device=self.device)
+                self.current_model = self.models[path]
+                return
+            except (OSError, ValueError, KeyError):
+                continue
+
+    def predict(self, observation, mask):
+        if self.current_model is None:
+            return None, None
+        return self.current_model.predict(observation, action_masks=mask, deterministic=True)
 
 
 class CardPlayCheckpointCallback(BaseCallback):
@@ -114,7 +147,13 @@ def main():
     graph_dir = Path("graphs") / args.run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     checkpoint = checkpoint_dir / "latest.zip"
-    env = EsmakkerCardPlayEnv(contract=args.contract)
+    opponent_pool = HistoricalOpponentPool(checkpoint_dir, device="cpu")
+    env = EsmakkerCardPlayEnv(
+        contract=args.contract,
+        opponent_mode="mixture",
+        opponent_model=opponent_pool,
+        opponent_profiles=OPPONENT_PROFILES,
+    )
 
     if args.resume and checkpoint.exists():
         model = MaskablePPO.load(checkpoint, env=env, device=args.device)
