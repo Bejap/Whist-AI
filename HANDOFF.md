@@ -121,6 +121,17 @@ as the contract-7 baseline and start a new run name:
 The v2 specialist should be evaluated across contracts before it is used as
 the frozen card-play component for separate bidding/declaration training.
 
+The card-play curriculum now randomizes the declarer independently from the
+learning seat. The learner therefore trains as both declarer and defender;
+terminal payment is always taken from the learning seat's settlement. Resume
+the compatible v2 checkpoint after this change so it adapts to both roles.
+
+When `--contract all` is used, contracts are sampled with Zipf weighting in
+the order `9, 8, 7, 10, 11, 12, 13`: weights are `1, 1/2, 1/3, ... 1/7`.
+This intentionally gives the central, commonly playable contracts more
+training exposure while retaining all numeric contracts. A running process
+must be restarted before it uses this changed distribution.
+
 The deterministic benchmark command is:
 
 ```powershell

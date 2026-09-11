@@ -1,6 +1,10 @@
 import unittest
+from collections import Counter
 
-from training.cardplay.esmakker_cardplay_env import EsmakkerCardPlayEnv
+from training.cardplay.esmakker_cardplay_env import (
+    CONTRACT_SAMPLING_ORDER,
+    EsmakkerCardPlayEnv,
+)
 
 
 class EsmakkerCardPlayTests(unittest.TestCase):
@@ -35,6 +39,33 @@ class EsmakkerCardPlayTests(unittest.TestCase):
         self.assertGreater(len(contracts), 1)
         self.assertTrue(contracts <= {str(number) for number in range(7, 14)})
 
+    def test_all_contract_mode_uses_zipf_order(self):
+        env = EsmakkerCardPlayEnv(contract="all")
+        counts = Counter(env.reset(seed=seed)[1]["contract"] for seed in range(7000))
+
+        ordered_counts = [counts[contract] for contract in CONTRACT_SAMPLING_ORDER]
+        self.assertEqual(sorted(ordered_counts, reverse=True), ordered_counts)
+        self.assertGreater(ordered_counts[0], ordered_counts[-1] * 3)
+
+    def test_learning_seat_is_sometimes_declarer_and_sometimes_defender(self):
+        env = EsmakkerCardPlayEnv(contract="7")
+        roles = {
+            env.reset(seed=seed)[1]["learning_player"] == env.game.declarer
+            for seed in range(30)
+        }
+
+        self.assertEqual(roles, {True, False})
+
+    def test_observation_identifies_the_actual_declarer(self):
+        env = EsmakkerCardPlayEnv(contract="7")
+        env.reset(seed=3)
+        env.game.declarer = (env.learning_player + 1) % 4
+
+        observation = env._observation()
+
+        self.assertEqual(observation[129 + env.game.declarer], 1.0)
+        self.assertEqual(observation[129 + env.learning_player], 0.0)
+
     def test_observation_tracks_played_cards_and_void_suits(self):
         env = EsmakkerCardPlayEnv(contract="7")
         env.reset(seed=11)
@@ -61,12 +92,9 @@ class EsmakkerCardPlayTests(unittest.TestCase):
 
     def test_team_tricks_does_not_double_count_declarer_partner(self):
         env = EsmakkerCardPlayEnv(contract="7")
-        matching_seed = next(
-            seed
-            for seed in range(100)
-            if (env.reset(seed=seed)[1]["declarer"] == env.game.partner_player)
-        )
-        env.reset(seed=matching_seed)
+        env.reset(seed=11)
+        env.game.declarer = env.learning_player
+        env.game.partner_player = env.learning_player
         env.game.tricks_won = [1, 2, 3, 4]
 
         expected = env.game.tricks_won[env.learning_player]

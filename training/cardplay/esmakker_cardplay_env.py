@@ -4,13 +4,19 @@ import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
 
-from esmakker_env import BID_ORDER, NUMERIC_BIDS, EsmakkerGame
+from esmakker_env import BID_ORDER, CONTRACT_13_REWARD_SCALE, NUMERIC_BIDS, EsmakkerGame
 from esmakker_rl_env import OBS_CONTRACTS, OBS_SIZE
 from whist_env import NUM_CARDS, NUM_PLAYERS
 
 CARD_PLAY_REWARD_SCALE = 50.0
 TRICK_REWARD = 0.1
 CARD_PLAY_OBS_SIZE = OBS_SIZE + NUM_CARDS + (NUM_PLAYERS * NUM_CARDS) + (NUM_PLAYERS * 4)
+CONTRACT_SAMPLING_ORDER = ("9", "8", "7", "10", "11", "12", "13")
+CONTRACT_SAMPLING_WEIGHTS = np.asarray(
+    [1.0 / rank for rank in range(1, len(CONTRACT_SAMPLING_ORDER) + 1)],
+    dtype=np.float64,
+)
+CONTRACT_SAMPLING_PROBABILITIES = CONTRACT_SAMPLING_WEIGHTS / CONTRACT_SAMPLING_WEIGHTS.sum()
 
 
 class EsmakkerCardPlayEnv(gym.Env):
@@ -41,10 +47,13 @@ class EsmakkerCardPlayEnv(gym.Env):
         game_seed = int(self.np_random.integers(2**31))
         self.game = EsmakkerGame(seed=game_seed)
         self.learning_player = int(self.np_random.integers(NUM_PLAYERS))
+        self.game.declarer = int(self.np_random.integers(NUM_PLAYERS))
         if self.contract_mode == "all":
-            self.contract = str(self.np_random.integers(7, 14))
+            self.contract = str(self.np_random.choice(
+                CONTRACT_SAMPLING_ORDER,
+                p=CONTRACT_SAMPLING_PROBABILITIES,
+            ))
         self.game.current_bid = self.contract
-        self.game.declarer = self.learning_player
         self.game.trump_suit = int(self.np_random.integers(4))
         partner_suit = (self.game.trump_suit + int(self.np_random.integers(1, 4))) % 4
         self.game.partner_suit = partner_suit
@@ -80,7 +89,12 @@ class EsmakkerCardPlayEnv(gym.Env):
         reward = invalid_penalty + trick_reward
         if terminated:
             payment = self.game.round_settlement.payments[self.learning_player]
-            reward += payment / CARD_PLAY_REWARD_SCALE
+            scale = (
+                CONTRACT_13_REWARD_SCALE
+                if self.contract == "13"
+                else CARD_PLAY_REWARD_SCALE
+            )
+            reward += payment / scale
         return self._observation(), reward, terminated, False, self._info()
 
     def action_masks(self, player=None):
@@ -127,7 +141,7 @@ class EsmakkerCardPlayEnv(gym.Env):
         index += 5
         observation[index + self.learning_player] = 1.0
         index += 4
-        observation[index + self.learning_player] = 1.0
+        observation[index + self.game.declarer] = 1.0
         index += 5
         observation[index:index + 4] = np.asarray(self.game.tricks_won, dtype=np.float32) / 13.0
         index += 4

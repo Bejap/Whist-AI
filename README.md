@@ -53,6 +53,9 @@ voids. Because this changes
 the observation and policy architecture, start it under a new run name rather
 than resuming the older contract-7 checkpoint:
 
+With `--contract all`, numeric contracts are sampled using Zipf weighting in
+the order `9, 8, 7, 10, 11, 12, 13`, with weights `1, 1/2, 1/3, ... 1/7`.
+
 ```powershell
 python -u -m training.cardplay.train_esmakker_cardplay `
 	--run-name esmakker_cardplay_v2 `
@@ -221,7 +224,8 @@ opening-pass value.
 
 Terminal settlement rewards use the actual payment scaled by 50:
 `payment / 50`. This keeps rewards manageable while preserving the difference
-between a near miss and a larger loss. A successful 13 is `+1.0`, a successful
+between a near miss and a larger loss. A successful 13 pays 25 but keeps a
+normalized training reward of `+1.0`, a successful
 Bordlægger is `+0.48`, and a successful Sol is `+0.12`. Set
 `ESMAKKER_SETTLEMENT_REWARD_SCALE` to tune the scale.
 
