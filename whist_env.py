@@ -1,5 +1,7 @@
 """Whist card game environment compatible with Gymnasium."""
 
+import os
+
 import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
@@ -26,6 +28,24 @@ TERMINAL_LOSS_REWARD = -2.0
 ACE_CAPTURE_BONUS = 0.3
 KING_CAPTURE_BONUS = 0.3
 QUEEN_CAPTURE_BONUS = 0.2
+
+# ---------------------------------------------------------------------------
+# Optimization #6: scale down shaping bonuses/penalties relative to the
+# +/-2.0 trick-win/loss and terminal rewards. This reduces reward variance
+# so PPO's value function has an easier target, while preserving the
+# *relative* ordering of shaping signals (e.g. "smart trump" > "efficient
+# trump" > "won with lead suit").
+# ---------------------------------------------------------------------------
+SHAPING_SCALE = float(os.getenv("WHIST_SHAPING_SCALE", "0.5"))
+TEAM_TERMINAL_REWARD = float(os.getenv("WHIST_TEAM_TERMINAL_REWARD", "2.0"))
+
+EFFICIENT_TRUMP_BONUS = 0.4 * SHAPING_SCALE
+SMART_TRUMP_BONUS = 0.5 * SHAPING_SCALE
+WON_LEAD_SUIT_BONUS = 0.2 * SHAPING_SCALE
+WASTED_TRUMP_PENALTY = -0.1 * SHAPING_SCALE
+MUST_TRUMP_PENALTY = -0.4 * SHAPING_SCALE
+TEAMMATE_WINNING_TRUMP_WASTE_PENALTY = -0.1 * SHAPING_SCALE
+WASTED_HIGH_CARD_PENALTY = -0.3 * SHAPING_SCALE
 
 # Observation layout sizes
 OBS_HAND = NUM_CARDS
@@ -72,7 +92,7 @@ class WhistEnv(gym.Env):
 
     Observation (length 340):
         - own hand:              52 bits (one-hot)
-        - played cards by seat: 208 bits (4 × 52)
+        - played cards by seat: 208 bits (4 x 52)
         - current trick:         52 bits (cards on the table this trick, up to 3)
         - trump suit:             5 bits (one-hot; index 0-3 = suit, index 4 = no trump)
         - team tricks:            2 floats (team0 tricks / 13, team1 tricks / 13)
@@ -239,6 +259,10 @@ class WhistEnv(gym.Env):
             mask[c] = 1.0
         return mask
 
+    def action_masks(self) -> np.ndarray:
+        """Return the valid-action mask using SB3-Contrib's API."""
+        return self.action_mask()
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -338,6 +362,10 @@ class WhistEnv(gym.Env):
         """Compute bonus / penalty shaping for the trick just resolved.
 
         Must be called *before* trick_cards is cleared.
+
+        NOTE: shaping magnitudes are scaled by SHAPING_SCALE (see top of
+        file) relative to the original design, so they influence behaviour
+        without dominating the +/-2.0 trick-win/loss and terminal rewards.
         """
         bonus = 0.0
         card_suit = card // 13
@@ -357,10 +385,10 @@ class WhistEnv(gym.Env):
 
         if winning_team == acting_team:
             if is_trump and winner == player:
-                # Efficient trump bonus: won trick with trump (+0.4)
-                bonus += 0.4
+                # Efficient trump bonus: won trick with trump
+                bonus += EFFICIENT_TRUMP_BONUS
 
-                # Smart trump bonus: played the lowest winning trump (+0.5)
+                # Smart trump bonus: played the lowest winning trump
                 trump_cards_in_hand = [
                     c for c in self.hands[player]
                     if c // 13 == self.trump_suit
@@ -400,16 +428,16 @@ class WhistEnv(gym.Env):
                         break
 
                 if lowest_winning_trump is not None and card == lowest_winning_trump:
-                    bonus += 0.5
+                    bonus += SMART_TRUMP_BONUS
 
             elif card_suit == lead_suit and winner == player:
                 # Won with highest card of lead suit
-                bonus += 0.2
+                bonus += WON_LEAD_SUIT_BONUS
         else:
             # Team lost the trick
             if is_trump:
                 # Wasted a trump on a trick the team lost
-                bonus -= 0.1
+                bonus += WASTED_TRUMP_PENALTY
 
             # Must-trump penalty: had no lead suit, had trump, didn't play trump
             if not is_trump and has_trump:
@@ -422,11 +450,11 @@ class WhistEnv(gym.Env):
                 # Player couldn't follow suit (otherwise they would have been
                 # forced to), so check if they had trump available
                 if not player_has_lead and player_has_trump:
-                    bonus -= 0.4
+                    bonus += MUST_TRUMP_PENALTY
 
         # Penalise wasting trump when teammate already winning
         if is_trump and winning_team == acting_team and winner != player:
-            bonus -= 0.1
+            bonus += TEAMMATE_WINNING_TRUMP_WASTE_PENALTY
 
         # Wasted high card penalty: teammate was already winning and player
         # threw a high card (rank >= Jack, i.e. rank index >= 9)
@@ -434,7 +462,7 @@ class WhistEnv(gym.Env):
                 and TEAMS[winner_before] == acting_team
                 and winner_before != player
                 and card_rank >= 9):
-            bonus -= 0.3
+            bonus += WASTED_HIGH_CARD_PENALTY
 
         return bonus
 
@@ -499,18 +527,53 @@ class SelfPlayWrapper(gym.Wrapper):
         super().__init__(env)
         self.policy_fn = policy_fn  # callable(obs, mask) -> action
         self.epsilon = epsilon      # probability of random opponent action
+        self._episode_return = 0.0
+        self.randomize_learning_seat = os.getenv(
+            "WHIST_RANDOMIZE_LEARNING_SEAT", "1"
+        ) != "0"
 
     def set_policy(self, policy_fn):
         """Set the policy function used for opponent moves."""
         self.policy_fn = policy_fn
 
+    def _policy_action(self, obs, mask):
+        if getattr(self.policy_fn, "uses_env", False):
+            return self.policy_fn(obs, mask, self.env)
+        return self.policy_fn(obs, mask)
+
     def set_epsilon(self, epsilon: float):
         """Set the epsilon for opponent randomization."""
         self.epsilon = epsilon
 
+    def action_masks(self) -> np.ndarray:
+        """Expose valid actions to MaskablePPO through the wrapper."""
+        return self.env.action_masks()
+
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
-        self._learning_player = self.env.current_player
+        if self.randomize_learning_seat:
+            self._learning_player = int(
+                self.env.np_random.integers(0, NUM_PLAYERS)
+            )
+        else:
+            self._learning_player = self.env.current_player
+        self._episode_return = 0.0
+
+        # Start each rollout at the selected seat so the shared policy learns
+        # opening, following, and defensive decisions from every position.
+        while self.env.current_player != self._learning_player:
+            valid_actions = np.flatnonzero(self.env.action_mask())
+            if self.policy_fn is not None and not (
+                self.epsilon > 0
+                and self.env.np_random.random() < self.epsilon
+            ):
+                other_action = self._policy_action(
+                    self.env._get_obs(), self.env.action_mask()
+                )
+            else:
+                other_action = int(self.env.np_random.choice(valid_actions))
+            self.env.step(other_action)
+
         # Rebuild obs with learning player id
         obs = self.env._get_obs(player_id=self._learning_player)
         info = self.env._get_info()
@@ -519,12 +582,14 @@ class SelfPlayWrapper(gym.Wrapper):
     def step(self, action):
         team = TEAMS[self._learning_player]
 
-        # Record trick counts before the learning player's action
-        tricks_before = self.env.team_tricks[team]
-
         obs, reward, terminated, truncated, info = self.env.step(action)
 
         if terminated or truncated:
+            outcome = 1.0 if self.env.team_tricks[team] > self.env.team_tricks[1 - team] else -1.0
+            reward += outcome * (TEAM_TERMINAL_REWARD - TERMINAL_WIN_REWARD)
+            self._episode_return += float(reward)
+            info = dict(info)
+            info["episode_return"] = self._episode_return
             obs = self.env._get_obs(player_id=self._learning_player)
             return obs, reward, terminated, truncated, info
 
@@ -539,13 +604,13 @@ class SelfPlayWrapper(gym.Wrapper):
                     other_action = int(self.env.np_random.choice(valid_actions))
                 else:
                     other_obs = self.env._get_obs()
-                    other_action = self.policy_fn(other_obs, mask)
+                    other_action = self._policy_action(other_obs, mask)
             else:
                 # Random policy fallback
                 other_action = int(self.env.np_random.choice(valid_actions))
 
             tricks_before_step = list(self.env.team_tricks)
-            obs, _r, terminated, truncated, info = self.env.step(other_action)
+            obs, _opponent_reward, terminated, truncated, info = self.env.step(other_action)
 
             # If a trick resolved during an opponent turn, credit the
             # learning player with +2 (team won) or -2 (team lost).
@@ -558,8 +623,19 @@ class SelfPlayWrapper(gym.Wrapper):
                     reward += TRICK_LOSS_REWARD
 
             if terminated or truncated:
+                # Re-assign the round outcome because the final opponent
+                # action's terminal reward is not useful to the learner.
+                if self.env.team_tricks[team] > self.env.team_tricks[1 - team]:
+                    reward += TEAM_TERMINAL_REWARD
+                else:
+                    reward -= TEAM_TERMINAL_REWARD
+                self._episode_return += float(reward)
+                info = dict(info)
+                info["episode_return"] = self._episode_return
                 obs = self.env._get_obs(player_id=self._learning_player)
                 return obs, reward, terminated, truncated, info
+
+        self._episode_return += float(reward)
 
         # Rebuild obs with learning player id
         obs = self.env._get_obs(player_id=self._learning_player)

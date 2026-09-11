@@ -16,6 +16,8 @@ Usage
 
 import sys
 import copy
+import json
+import os
 
 import numpy as np
 import torch
@@ -59,20 +61,23 @@ def load_model():
     """Load the latest checkpoint."""
     from train import latest_checkpoint
     from stable_baselines3 import PPO
-    from sb3_contrib import RecurrentPPO
+    from sb3_contrib import MaskablePPO
 
+    device = os.getenv("WHIST_DEVICE", "auto")
     ckpt_path, episode = latest_checkpoint()
     if ckpt_path is None:
-        print("No checkpoint found. Train the agent first with: python train.py")
+        print("No checkpoint found. Train the agent first with: python -m training.selfplay.train")
         sys.exit(1)
 
     print(f"Loading checkpoint: {ckpt_path} (episode {episode})")
     try:
-        model = RecurrentPPO.load(ckpt_path, device="cpu")
-        print("Model type: RecurrentPPO")
+        model = MaskablePPO.load(ckpt_path, device=device)
+        print("Model type: MaskablePPO")
     except Exception:
-        model = PPO.load(ckpt_path, device="cpu")
+        model = PPO.load(ckpt_path, device=device)
         print("Model type: PPO")
+    print(f"Requested device: {device}")
+    print(f"Active device: {getattr(model, 'device', 'unknown')}")
     return model
 
 
@@ -103,7 +108,7 @@ def policy_priors_and_value(model, obs, mask):
     priors: np.ndarray shape (NUM_CARDS,), masked and normalised action probs.
     value: scalar value-head estimate for the same observation.
     """
-    obs_t = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0)
+    obs_t = torch.as_tensor(obs, dtype=torch.float32).unsqueeze(0).to(model.device)
     priors = None
 
     try:
@@ -155,6 +160,36 @@ def _rollout_value(env, model, root_player: int, max_steps: int = 52) -> float:
     return team_diff / 13.0
 
 
+def determinize_hidden_hands(env, observing_player: int, rng=None):
+    """Sample plausible hidden hands without exposing the real deal to MCTS.
+
+    Only the observing player's hand and publicly played cards are retained.
+    Remaining cards are randomly assigned to opponents with their current hand
+    sizes. This is an information-set approximation rather than perfect-play
+    search with access to hidden cards.
+    """
+    rng = rng or np.random.default_rng()
+    public_cards = set(
+        np.flatnonzero(np.any(env.played_cards_by_player > 0, axis=0)).tolist()
+    )
+    public_cards.update(card for _, card in env.trick_cards)
+    known_cards = public_cards | set(env.hands[observing_player])
+    unknown_cards = [card for card in range(NUM_CARDS) if card not in known_cards]
+    rng.shuffle(unknown_cards)
+
+    index = 0
+    for player in range(NUM_PLAYERS):
+        if player == observing_player:
+            continue
+        count = len(env.hands[player])
+        env.hands[player] = sorted(unknown_cards[index:index + count])
+        index += count
+
+    if index != len(unknown_cards):
+        raise RuntimeError("Hidden-hand determinization assigned an invalid card count.")
+    return env
+
+
 def mcts_action(env, model, sims: int = 64, c_puct: float = 1.25) -> int:
     """Pick an action with a lightweight PUCT search at the root."""
     root_player = env.current_player
@@ -184,7 +219,7 @@ def mcts_action(env, model, sims: int = 64, c_puct: float = 1.25) -> int:
         scores[mask == 0] = -1e9
         action = int(np.argmax(scores))
 
-        env_sim = copy.deepcopy(env)
+        env_sim = determinize_hidden_hands(copy.deepcopy(env), root_player)
         env_sim.step(action)
         rollout_val = _rollout_value(env_sim, model, root_player)
         estimate = 0.5 * rollout_val + 0.5 * root_value
@@ -265,11 +300,17 @@ def choose_mode() -> str:
 # ---------------------------------------------------------------------------
 
 
-def run_game(mode: str, mcts_sims: int) -> None:
+def run_game(mode: str, mcts_sims: int, replay_path: str | None = None) -> None:
     """Run a complete Whist round in the requested mode."""
     model = load_model()
     env = WhistEnv(render_mode=None)  # display is handled here, not in env
     env.reset()
+    replay = {
+        "mode": mode,
+        "mcts_sims": mcts_sims,
+        "trump_suit": int(env.trump_suit),
+        "events": [],
+    }
 
     mode_labels = {
         "watch":  "AI vs AI (all 4 seats)",
@@ -310,9 +351,20 @@ def run_game(mode: str, mcts_sims: int) -> None:
             action = agent_action(model, env, mcts_sims=mcts_sims)
             print(f"  → P{player + 1} plays: {card_short(action)}")
 
+        valid_cards = [int(card) for card in np.flatnonzero(env.action_mask())]
         trick_display.append((player, action))
 
-        env.step(action)
+        _, reward, terminated, truncated, _ = env.step(action)
+        replay["events"].append({
+            "player": player,
+            "action": int(action),
+            "card": card_short(action),
+            "valid_cards": valid_cards,
+            "reward": float(reward),
+            "terminated": bool(terminated),
+            "truncated": bool(truncated),
+            "team_tricks": list(env.team_tricks),
+        })
 
         # --- Trick just resolved (4 cards played) ---
         if len(trick_display) == NUM_PLAYERS and len(env.trick_cards) == 0:
@@ -337,6 +389,18 @@ def run_game(mode: str, mcts_sims: int) -> None:
     else:
         print("  🤝 It's a tie!")
     print("=" * 50)
+
+    replay["team_tricks"] = list(env.team_tricks)
+    replay["winner_team"] = (
+        0 if env.team_tricks[0] > env.team_tricks[1]
+        else 1 if env.team_tricks[1] > env.team_tricks[0]
+        else None
+    )
+    if replay_path:
+        os.makedirs(os.path.dirname(replay_path) or ".", exist_ok=True)
+        with open(replay_path, "w", encoding="utf-8") as file:
+            json.dump(replay, file, indent=2)
+        print(f"Replay saved to {replay_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -364,7 +428,11 @@ if __name__ == "__main__":
         default=64,
         help="Number of root MCTS simulations for AI moves (0 disables search).",
     )
+    parser.add_argument(
+        "--replay",
+        help="Write a JSON replay containing actions, legal cards, rewards, and scores.",
+    )
     args = parser.parse_args()
 
     mode = args.mode if args.mode else choose_mode()
-    run_game(mode, mcts_sims=max(0, args.mcts_sims))
+    run_game(mode, mcts_sims=max(0, args.mcts_sims), replay_path=args.replay)

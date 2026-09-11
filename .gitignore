@@ -1,0 +1,100 @@
+Create a .gitignore file for a Python reinforcement learning project with the following entries:
+
+## Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+## Virtual environment
+venv/
+.venv/
+.venv_cuda/
+env/
+ENV/
+.python-version
+
+## Training outputs
+checkpoints/
+checkpoints_multiseat/
+checkpoints_strong/
+checkpoints_competitive/
+checkpoints_post_selfplay/
+checkpoints_anchor_selfplay/
+train_multiseat.lock
+train_strong.lock
+*_conflicted_*
+graphs/
+graphs_multiseat/
+graphs_strong/
+graphs_competitive/
+rewards.csv
+rewards_multiseat.csv
+rewards_strong.csv
+rewards_competitive.csv
+rewards_post_selfplay.csv
+rewards_anchor_selfplay.csv
+winrate.csv
+winrate_multiseat.csv
+winrate_strong.csv
+winrate_competitive.csv
+winrate_post_selfplay.csv
+benchmarks.csv
+benchmark_games.csv
+benchmarks_multiseat.csv
+benchmark_games_multiseat.csv
+benchmarks_*_large.csv
+benchmark_games_*_large.csv
+strong_checkpoint_scores.csv
+competitive_checkpoint_scores.csv
+post_selfplay_checkpoint_scores.csv
+anchor_selfplay_checkpoint_scores.csv
+train_anchor_selfplay.lock
+train_post_selfplay.lock
+train_competitive.lock
+replays/
+graphs/benchmarks/esmakker_human_games.jsonl
+fresh_start.flag
+*.png
+*.tar.gz
+
+## PyTorch
+*.pth
+*.pt
+
+# Published model registry is intentionally tracked with Git LFS
+!published_models/
+!published_models/*.pth
+!published_models/MODEL_REGISTRY.md
+
+## Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+## IDE
+.vscode/
+.idea/
+*.suo
+*.user
+
+## OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+## Logs
+*.log
+logs/
+*.out
+*.err
+
+## Python packaging / build artifacts
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
