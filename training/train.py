@@ -11,7 +11,7 @@ from torch.distributions import Categorical
 from whist_ai.engine import WhistGame
 from whist_ai.model import LearnedPolicy, PolicyNetwork, save_checkpoint
 from whist_ai.policies import RulePolicy
-from whist_ai.resources import wait_for_memory
+from whist_ai.resources import wait_for_gpu, wait_for_memory
 from whist_ai.simulator import GameController
 
 
@@ -52,6 +52,9 @@ def train(
     update_epochs: int,
     memory_limit: float,
     memory_resume: float,
+    gpu_temperature_limit: float,
+    gpu_temperature_resume: float,
+    gpu_memory_limit: float,
 ) -> None:
     torch.manual_seed(seed)
     if checkpoint.exists():
@@ -64,6 +67,8 @@ def train(
     optimizer = torch.optim.Adam(network.parameters(), lr=3e-4)
     for episode in range(1, episodes + 1):
         wait_for_memory(memory_limit, memory_resume)
+        if device.startswith("cuda"):
+            wait_for_gpu(gpu_temperature_limit, gpu_temperature_resume, gpu_memory_limit)
         game = WhistGame(seed=seed + episode)
         controller = GameController(game, [policy, RulePolicy(), RulePolicy(), RulePolicy()])
         rewards = controller.run()
@@ -86,6 +91,9 @@ def main() -> None:
     parser.add_argument("--update-epochs", type=int, default=4)
     parser.add_argument("--memory-limit", type=float, default=80.0)
     parser.add_argument("--memory-resume", type=float, default=75.0)
+    parser.add_argument("--gpu-temperature-limit", type=float, default=80.0)
+    parser.add_argument("--gpu-temperature-resume", type=float, default=70.0)
+    parser.add_argument("--gpu-memory-limit", type=float, default=90.0)
     args = parser.parse_args()
     if args.episodes <= 0 or args.update_epochs <= 0:
         raise ValueError("episodes and update epochs must be positive")
@@ -97,6 +105,9 @@ def main() -> None:
         args.update_epochs,
         args.memory_limit,
         args.memory_resume,
+        args.gpu_temperature_limit,
+        args.gpu_temperature_resume,
+        args.gpu_memory_limit,
     )
 
 
