@@ -19,7 +19,7 @@ def evaluate(checkpoint: Path, episodes: int, seed: int, device: str) -> dict[st
     rewards = []
     for episode in range(episodes):
         controller = GameController(
-            WhistGame(seed=seed + episode),
+            WhistGame(seed=seed + episode, dealer=(seed + episode) % 4),
             [policy, RulePolicy(), RulePolicy(), RulePolicy()],
         )
         rewards.append(controller.run()[0])

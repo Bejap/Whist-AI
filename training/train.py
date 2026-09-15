@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 from pathlib import Path
 
 import torch
@@ -57,6 +58,8 @@ def train(
     gpu_temperature_resume: float,
     gpu_memory_limit: float,
     metrics_path: Path,
+    decisions_path: Path,
+    plot_every: int,
 ) -> None:
     torch.manual_seed(seed)
     if checkpoint.exists():
@@ -73,11 +76,17 @@ def train(
         metrics = csv.writer(metrics_file)
         if not metrics_exists:
             metrics.writerow(("episode", "reward", "loss", "positive", "nonnegative"))
+    decisions_path.parent.mkdir(parents=True, exist_ok=True)
+    decisions_exists = decisions_path.exists()
+    with decisions_path.open("a", newline="", encoding="utf-8") as decisions_file:
+        decisions = csv.writer(decisions_file)
+        if not decisions_exists:
+            decisions.writerow(("episode", "dealer", "contract", "declarer", "bid_history"))
     for episode in range(1, episodes + 1):
         wait_for_memory(memory_limit, memory_resume)
         if device.startswith("cuda"):
             wait_for_gpu(gpu_temperature_limit, gpu_temperature_resume, gpu_memory_limit)
-        game = WhistGame(seed=seed + episode)
+        game = WhistGame(seed=seed + episode, dealer=(seed + episode) % 4)
         controller = GameController(game, [policy, RulePolicy(), RulePolicy(), RulePolicy()])
         rewards = controller.run()
         reward = float(rewards[0])
@@ -86,12 +95,28 @@ def train(
             csv.writer(metrics_file).writerow(
                 (episode, reward, loss, int(reward > 0), int(reward >= 0))
             )
+        bid_history = [
+            {"player": decision.player, "action": decision.action}
+            for decision in controller.decisions
+            if decision.phase == "bidding"
+        ]
+        with decisions_path.open("a", newline="", encoding="utf-8") as decisions_file:
+            csv.writer(decisions_file).writerow(
+                (episode, game.dealer, game.current_bid, game.declarer, json.dumps(bid_history))
+            )
         if episode == 1 or episode % 100 == 0:
             print(f"episode={episode} reward={reward:+.1f} loss={loss:.4f}", flush=True)
         if episode % 1000 == 0:
             save_checkpoint(network, checkpoint)
+        if episode % plot_every == 0:
+            from training.plot_metrics import plot_bidding, plot_progress, plot_rewards
+
+            plot_progress(metrics_path, Path("graphs/training_progress.png"), 100)
+            plot_rewards(Path("graphs/reward_structure.png"))
+            plot_bidding(decisions_path, Path("graphs/bidding_progress.png"), 100)
+            print("updated=graphs/training_progress.png, graphs/bidding_progress.png", flush=True)
     save_checkpoint(network, checkpoint)
-    print(f"saved={checkpoint} metrics={metrics_path}")
+    print(f"saved={checkpoint} metrics={metrics_path} decisions={decisions_path}")
 
 
 def main() -> None:
@@ -107,9 +132,11 @@ def main() -> None:
     parser.add_argument("--gpu-temperature-resume", type=float, default=70.0)
     parser.add_argument("--gpu-memory-limit", type=float, default=90.0)
     parser.add_argument("--metrics", type=Path, default=Path("graphs/training_metrics.csv"))
+    parser.add_argument("--decisions", type=Path, default=Path("graphs/bidding_decisions.csv"))
+    parser.add_argument("--plot-every", type=int, default=1000)
     args = parser.parse_args()
-    if args.episodes <= 0 or args.update_epochs <= 0:
-        raise ValueError("episodes and update epochs must be positive")
+    if args.episodes <= 0 or args.update_epochs <= 0 or args.plot_every <= 0:
+        raise ValueError("episodes, update epochs, and plot interval must be positive")
     train(
         args.episodes,
         args.seed,
@@ -122,6 +149,8 @@ def main() -> None:
         args.gpu_temperature_resume,
         args.gpu_memory_limit,
         args.metrics,
+        args.decisions,
+        args.plot_every,
     )
 
 

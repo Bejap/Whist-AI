@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -73,9 +74,48 @@ def plot_rewards(output_path: Path) -> None:
     plt.close(figure)
 
 
+def plot_bidding(decisions_path: Path, output_path: Path, window: int) -> None:
+    with decisions_path.open(newline="", encoding="utf-8") as decisions_file:
+        rows = list(csv.DictReader(decisions_file))
+    if not rows:
+        raise ValueError(f"no bidding rows found in {decisions_path}")
+    contracts = sorted({f"{row['contract']} (P{row['declarer']})" for row in rows})
+    episodes = [int(row["episode"]) for row in rows]
+    figure, axes = plt.subplots(2, 1, figsize=(12, 9), sharex=True)
+    for contract in contracts:
+        counts = [sum(f"{row['contract']} (P{row['declarer']})" == contract for row in rows[: index + 1])
+                  for index in range(len(rows))]
+        axes[0].plot(episodes, counts, label=contract)
+    axes[0].set_ylabel("cumulative contracts")
+    axes[0].set_title("Contracts selected during training")
+    axes[0].legend(ncol=3, fontsize="small")
+    for player in range(4):
+        bid_counts = []
+        for index in range(len(rows)):
+            recent = rows[max(0, index - window + 1) : index + 1]
+            bid_counts.append(
+                sum(
+                    1
+                    for recent_row in recent
+                    for decision in json.loads(recent_row["bid_history"])
+                    if decision["player"] == player and decision["action"] != "pass"
+                )
+            )
+        axes[1].plot(episodes, bid_counts, label=f"player {player}")
+    axes[1].set_xlabel("episode")
+    axes[1].set_ylabel(f"bids in last {window} games")
+    axes[1].set_title("Non-pass bids by player")
+    axes[1].legend()
+    figure.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    figure.savefig(output_path, dpi=150)
+    plt.close(figure)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--metrics", type=Path, default=Path("graphs/training_metrics.csv"))
+    parser.add_argument("--decisions", type=Path, default=Path("graphs/bidding_decisions.csv"))
     parser.add_argument("--output-dir", type=Path, default=Path("graphs"))
     parser.add_argument("--window", type=int, default=100)
     args = parser.parse_args()
@@ -83,8 +123,10 @@ def main() -> None:
         raise ValueError("window must be positive")
     plot_progress(args.metrics, args.output_dir / "training_progress.png", args.window)
     plot_rewards(args.output_dir / "reward_structure.png")
+    plot_bidding(args.decisions, args.output_dir / "bidding_progress.png", args.window)
     print(f"saved={args.output_dir / 'training_progress.png'}")
     print(f"saved={args.output_dir / 'reward_structure.png'}")
+    print(f"saved={args.output_dir / 'bidding_progress.png'}")
 
 
 if __name__ == "__main__":
