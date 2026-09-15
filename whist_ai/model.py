@@ -135,7 +135,12 @@ class LearnedPolicy(Policy):
         self.transitions.clear()
 
 
-def save_checkpoint(network: PolicyNetwork, path: str | Path) -> None:
+def save_checkpoint(
+    network: PolicyNetwork,
+    path: str | Path,
+    optimizer: torch.optim.Optimizer | None = None,
+    episode: int = 0,
+) -> None:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     torch.save(
         {
@@ -145,12 +150,20 @@ def save_checkpoint(network: PolicyNetwork, path: str | Path) -> None:
             "action_space_version": ACTION_SPACE_VERSION,
             "rules_version": RULES_VERSION,
             "policy_role": "shared_full_game",
+            "episode": episode,
         },
         path,
     )
+    if optimizer is not None:
+        checkpoint = torch.load(path, map_location="cpu")
+        checkpoint["optimizer"] = optimizer.state_dict()
+        torch.save(checkpoint, path)
 
 
-def load_checkpoint(path: str | Path, device: str = "cpu") -> PolicyNetwork:
+def load_training_checkpoint(
+    path: str | Path,
+    device: str = "cpu",
+) -> tuple[PolicyNetwork, dict[str, Any]]:
     checkpoint = torch.load(path, map_location=device)
     expected = {
         "observation_size": OBSERVATION_SIZE,
@@ -163,4 +176,9 @@ def load_checkpoint(path: str | Path, device: str = "cpu") -> PolicyNetwork:
             raise ValueError(f"checkpoint {key} is incompatible")
     network = PolicyNetwork().to(device)
     network.load_state_dict(checkpoint["model"])
+    return network, checkpoint
+
+
+def load_checkpoint(path: str | Path, device: str = "cpu") -> PolicyNetwork:
+    network, _ = load_training_checkpoint(path, device=device)
     return network

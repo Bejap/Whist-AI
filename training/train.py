@@ -11,7 +11,7 @@ import torch
 from torch.distributions import Categorical
 
 from whist_ai.engine import WhistGame
-from whist_ai.model import LearnedPolicy, PolicyNetwork, save_checkpoint
+from whist_ai.model import LearnedPolicy, PolicyNetwork, load_training_checkpoint, save_checkpoint
 from whist_ai.policies import RulePolicy
 from whist_ai.resources import wait_for_gpu, wait_for_memory
 from whist_ai.simulator import GameController
@@ -62,14 +62,19 @@ def train(
     plot_every: int,
 ) -> None:
     torch.manual_seed(seed)
+    checkpoint_data = None
     if checkpoint.exists():
-        from whist_ai.model import load_checkpoint
-        network = load_checkpoint(checkpoint, device=device)
+        network, checkpoint_data = load_training_checkpoint(checkpoint, device=device)
         print(f"resuming={checkpoint}")
     else:
         network = PolicyNetwork().to(device)
     policy = LearnedPolicy(network, device=device)
     optimizer = torch.optim.Adam(network.parameters(), lr=3e-4)
+    start_episode = 0
+    if checkpoint_data is not None:
+        start_episode = int(checkpoint_data.get("episode", 0))
+        if "optimizer" in checkpoint_data:
+            optimizer.load_state_dict(checkpoint_data["optimizer"])
     metrics_path.parent.mkdir(parents=True, exist_ok=True)
     metrics_exists = metrics_path.exists()
     with metrics_path.open("a", newline="", encoding="utf-8") as metrics_file:
@@ -82,7 +87,7 @@ def train(
         decisions = csv.writer(decisions_file)
         if not decisions_exists:
             decisions.writerow(("episode", "dealer", "contract", "declarer", "bid_history"))
-    for episode in range(1, episodes + 1):
+    for episode in range(start_episode + 1, start_episode + episodes + 1):
         wait_for_memory(memory_limit, memory_resume)
         if device.startswith("cuda"):
             wait_for_gpu(gpu_temperature_limit, gpu_temperature_resume, gpu_memory_limit)
@@ -112,7 +117,7 @@ def train(
         if episode == 1 or episode % 100 == 0:
             print(f"episode={episode} reward={reward:+.1f} loss={loss:.4f}", flush=True)
         if episode % 1000 == 0:
-            save_checkpoint(network, checkpoint)
+            save_checkpoint(network, checkpoint, optimizer=optimizer, episode=episode)
         if episode % plot_every == 0:
             from training.plot_metrics import plot_bidding, plot_progress, plot_rewards
 
@@ -120,7 +125,7 @@ def train(
             plot_rewards(Path("graphs/reward_structure.png"))
             plot_bidding(decisions_path, Path("graphs/bidding_progress.png"), 100)
             print("updated=graphs/training_progress.png, graphs/bidding_progress.png", flush=True)
-    save_checkpoint(network, checkpoint)
+    save_checkpoint(network, checkpoint, optimizer=optimizer, episode=start_episode + episodes)
     print(f"saved={checkpoint} metrics={metrics_path} decisions={decisions_path}")
 
 

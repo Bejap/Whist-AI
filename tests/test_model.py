@@ -13,6 +13,7 @@ from whist_ai.model import (
     RULES_VERSION,
     encode_observation,
     load_checkpoint,
+    load_training_checkpoint,
     save_checkpoint,
 )
 from whist_ai.policies import RulePolicy
@@ -61,6 +62,22 @@ class ModelTests(unittest.TestCase):
         self.assertEqual(checkpoint["observation_version"], OBSERVATION_VERSION)
         self.assertEqual(checkpoint["action_space_version"], ACTION_SPACE_VERSION)
         self.assertEqual(checkpoint["rules_version"], RULES_VERSION)
+
+    def test_training_checkpoint_restores_optimizer_and_episode(self):
+        network = PolicyNetwork()
+        optimizer = torch.optim.Adam(network.parameters(), lr=3e-4)
+        state = torch.zeros((OBSERVATION_SIZE,), dtype=torch.float32)
+        loss = network(state, "play")[0].sum()
+        loss.backward()
+        optimizer.step()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "training_policy.pt"
+            save_checkpoint(network, path, optimizer=optimizer, episode=17)
+            restored, checkpoint = load_training_checkpoint(path)
+            restored_optimizer = torch.optim.Adam(restored.parameters(), lr=3e-4)
+            restored_optimizer.load_state_dict(checkpoint["optimizer"])
+        self.assertEqual(checkpoint["episode"], 17)
+        self.assertEqual(len(restored_optimizer.state), len(optimizer.state))
 
 
 if __name__ == "__main__":
