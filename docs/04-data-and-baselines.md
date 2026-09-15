@@ -11,6 +11,8 @@ Implement and freeze:
 - A legal random player.
 - A deterministic rules player.
 - A stronger heuristic player with hand strength, contract risk, and trick logic.
+- Training opponents using conservative, balanced, and aggressive graded bidding
+	styles so auctions include raises and higher contracts instead of defaulting to Paskrig.
 - A search or rollout player for small endgame positions where practical.
 - Historical checkpoint opponents once compatible checkpoints exist.
 

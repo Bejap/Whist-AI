@@ -6,6 +6,16 @@ from whist_ai.simulator import GameController
 
 
 class SimulatorTests(unittest.TestCase):
+    def test_rule_policy_can_raise_and_styles_are_validated(self):
+        observation = {
+            "hand": tuple((0, rank) for rank in range(13)),
+            "current_bid": 7,
+        }
+        legal_bids = ("pass", 8, "sol", 9, 10, "ren sol", 11, 12, "bordlaegger", 13)
+        self.assertGreater(RulePolicy("aggressive").choose_bid(observation, legal_bids), 7)
+        with self.assertRaises(ValueError):
+            RulePolicy("reckless")
+
     def test_controller_runs_a_complete_game(self):
         policies = [RulePolicy() for _ in range(4)]
         controller = GameController(WhistGame(seed=8), policies)

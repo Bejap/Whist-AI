@@ -42,15 +42,30 @@ class RandomPolicy(Policy):
 
 
 class RulePolicy(Policy):
-    """Small deterministic baseline that is legal and easy to benchmark."""
+    """Deterministic competitive baseline with a graded bidding strategy."""
+
+    def __init__(self, style: str = "balanced") -> None:
+        if style not in {"conservative", "balanced", "aggressive"}:
+            raise ValueError("style must be conservative, balanced, or aggressive")
+        self.style = style
 
     def choose_bid(self, observation, legal_bids):
         hand = observation["hand"]
-        high_cards = sum(rank >= 10 for _, rank in hand)
-        current_bid = observation["current_bid"]
-        numeric = [bid for bid in legal_bids if isinstance(bid, int)]
-        if current_bid is None and high_cards >= 10 and numeric:
-            return 7
+        points = sum(max(0, rank - 8) for _, rank in hand)
+        aces = sum(rank == 12 for _, rank in hand)
+        longest_suit = max(sum(card[0] == suit for card in hand) for suit in range(4))
+        target = 7 + max(0, min(6, (points + longest_suit - 13) // 2))
+        if self.style == "conservative":
+            target = max(7, target - 1)
+        elif self.style == "aggressive":
+            target = min(13, target + 1)
+
+        # A low-ace hand is a plausible Sol candidate when it is still legal.
+        if aces <= 1 and points <= 9 and "sol" in legal_bids:
+            return "sol"
+        numeric = [bid for bid in legal_bids if isinstance(bid, int) and bid <= target]
+        if numeric:
+            return max(numeric)
         return "pass" if "pass" in legal_bids else legal_bids[0]
 
     def choose_trump(self, observation, legal_suits):
@@ -69,9 +84,4 @@ class ConservativePolicy(RulePolicy):
     """Rule baseline that only bids when the hand has substantial strength."""
 
     def choose_bid(self, observation, legal_bids):
-        hand = observation["hand"]
-        high_cards = sum(rank >= 10 for _, rank in hand)
-        numeric = [bid for bid in legal_bids if isinstance(bid, int)]
-        if observation["current_bid"] is None and high_cards >= 11 and numeric:
-            return 7
-        return "pass" if "pass" in legal_bids else legal_bids[0]
+        return super().choose_bid(observation, legal_bids)

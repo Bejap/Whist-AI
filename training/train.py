@@ -87,7 +87,12 @@ def train(
         if device.startswith("cuda"):
             wait_for_gpu(gpu_temperature_limit, gpu_temperature_resume, gpu_memory_limit)
         game = WhistGame(seed=seed + episode, dealer=(seed + episode) % 4)
-        controller = GameController(game, [policy, RulePolicy(), RulePolicy(), RulePolicy()])
+        opponents = [
+            RulePolicy("conservative"),
+            RulePolicy("balanced"),
+            RulePolicy("aggressive"),
+        ]
+        controller = GameController(game, [policy, *opponents])
         rewards = controller.run()
         reward = float(rewards[0])
         loss = update_policy(policy, optimizer, reward, update_epochs)
