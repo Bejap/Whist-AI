@@ -37,3 +37,10 @@ Commit and push meaningful progress throughout the process.
 ## Resource discipline
 
 Training and evaluation must respect system RAM and GPU limits. Prefer bounded workloads, CPU opponent inference, reproducible seeds, and explicit pause or stop behavior for resource-heavy jobs. Do not launch a second expensive process while another one is active without checking resource headroom.
+
+## Training ownership
+
+- The user launches and stops substantive training runs from their own terminal.
+- The agent must not start long-running or expensive training autonomously.
+- The agent may prepare commands, inspect training output, generate graphs, and run short smoke tests when explicitly requested.
+- Before suggesting a training command, include the checkpoint path, metrics path, CUDA device, RAM limits, GPU temperature limits, and VRAM limit.
