@@ -54,14 +54,20 @@ class RulePolicy(Policy):
         points = sum(max(0, rank - 8) for _, rank in hand)
         aces = sum(rank == 12 for _, rank in hand)
         longest_suit = max(sum(card[0] == suit for card in hand) for suit in range(4))
-        target = 7 + max(0, min(6, (points + longest_suit - 13) // 2))
+        # Keep ordinary hands around 7-9; reserve high contracts for genuinely
+        # strong hands instead of treating length as several extra tricks.
+        strength = points + max(0, longest_suit - 4)
+        minimum_strength = {"conservative": 16, "balanced": 14, "aggressive": 12}[self.style]
+        if strength < minimum_strength:
+            return "pass" if "pass" in legal_bids else legal_bids[0]
+        target = 7 + max(0, min(6, (strength - 12) // 2))
         if self.style == "conservative":
             target = max(7, target - 1)
         elif self.style == "aggressive":
             target = min(13, target + 1)
 
         # A low-ace hand is a plausible Sol candidate when it is still legal.
-        if aces <= 1 and points <= 9 and "sol" in legal_bids:
+        if aces == 0 and points <= 4 and longest_suit <= 4 and "sol" in legal_bids:
             return "sol"
         numeric = [bid for bid in legal_bids if isinstance(bid, int) and bid <= target]
         if numeric:
