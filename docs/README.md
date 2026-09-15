@@ -12,8 +12,14 @@ This directory defines the new build in phases. The old training branch remains 
 6. [Bidding and declaration](06-bidding-and-declaration.md)
 7. [Full-game integration](07-full-game-integration.md)
 8. [Evaluation and deployment](08-evaluation-and-deployment.md)
+9. [Training plan and phase gates](09-training-plan.md)
 
 A phase is complete only when its exit criteria and tests pass. Training is not considered progress by itself; a checkpoint must beat a fixed baseline on a held-out evaluation with reproducible seeds.
+
+The execution order for model training is locked in
+[09-training-plan.md](09-training-plan.md): card-play specialist first,
+counterfactual evaluation and legacy opponents next, bidding/declaration after
+that, and full integration last.
 
 ## Core architecture
 

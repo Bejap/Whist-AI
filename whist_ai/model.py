@@ -140,6 +140,7 @@ def save_checkpoint(
     path: str | Path,
     optimizer: torch.optim.Optimizer | None = None,
     episode: int = 0,
+    policy_role: str = "shared_full_game",
 ) -> None:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     torch.save(
@@ -149,7 +150,7 @@ def save_checkpoint(
             "observation_version": OBSERVATION_VERSION,
             "action_space_version": ACTION_SPACE_VERSION,
             "rules_version": RULES_VERSION,
-            "policy_role": "shared_full_game",
+            "policy_role": policy_role,
             "episode": episode,
         },
         path,

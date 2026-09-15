@@ -17,7 +17,19 @@ class EngineTests(unittest.TestCase):
             game.pass_bid(game.current_player)
         self.assertEqual(game.phase, "play")
         self.assertEqual(game.current_bid, "paskrig")
-        self.assertIsNone(game.declarer)
+
+    def test_fixed_numeric_contract_starts_card_play_without_auction(self):
+        game = WhistGame(seed=41)
+        game.start_fixed_contract(8, declarer=0, trump_suit=1, partner_suit=2)
+        self.assertEqual(game.phase, "play")
+        self.assertEqual(game.current_bid, 8)
+        self.assertEqual(game.declarer, 0)
+        self.assertIsNotNone(game.partner_player)
+
+    def test_fixed_contract_rejects_invalid_numeric_declaration(self):
+        game = WhistGame(seed=42)
+        with self.assertRaises(GameStateError):
+            game.start_fixed_contract(8, declarer=0, trump_suit=1, partner_suit=1)
 
     def test_numeric_bid_requires_declaration(self):
         game = WhistGame(seed=2)

@@ -60,6 +60,40 @@ class WhistGame:
         legal.extend(bid for index, bid in enumerate(BID_ORDER) if index > current_index)
         return tuple(legal)
 
+    def start_fixed_contract(
+        self,
+        contract: int | str,
+        declarer: int | None = None,
+        trump_suit: int | None = None,
+        partner_suit: int | None = None,
+    ) -> None:
+        """Start a card-play training scenario without running an auction."""
+        self._require_phase("bidding")
+        normalized = self._normalize_bid(contract) if contract != "paskrig" else "paskrig"
+        if normalized == "paskrig":
+            self._start_paskrig()
+            return
+        if declarer not in range(4):
+            raise GameStateError("a fixed contract requires a declarer")
+        self.current_bid = normalized
+        self.declarer = declarer
+        self.passed_players = set()
+        if normalized in NOLO_BIDS:
+            self._start_tricks(declarer)
+            return
+        if trump_suit not in range(4):
+            raise GameStateError("a numeric fixed contract requires a trump suit")
+        if partner_suit not in range(4) or partner_suit == trump_suit:
+            raise GameStateError("a numeric fixed contract requires a distinct partner suit")
+        self.trump_suit = trump_suit
+        self.partner_suit = partner_suit
+        partner_rank = 11 if self._holds_all_aces(declarer) else 12
+        self.partner_card = (partner_suit, partner_rank)
+        self.partner_player = next(
+            seat for seat, hand in enumerate(self.hands) if self.partner_card in hand
+        )
+        self._start_tricks(declarer)
+
     def bid(self, player: int, bid: int | str) -> None:
         self._require_turn(player)
         self._require_phase("bidding")
