@@ -42,6 +42,25 @@ class SimulatorTests(unittest.TestCase):
         self.assertIsNone(observation["partner_player"])
         self.assertFalse(observation["partner_revealed"])
 
+    def test_observation_reveals_partner_after_declaration(self):
+        controller = GameController(WhistGame(seed=31), [RulePolicy()] * 4)
+        while controller.game.phase != "choose_partner":
+            controller.step()
+        controller.step()
+        observation = controller.observation(controller.game.current_player)
+        self.assertTrue(observation["partner_revealed"])
+        self.assertIsNotNone(observation["partner_player"])
+        self.assertIsNotNone(observation["partner_suit"])
+
+    def test_observation_keeps_completed_tricks_public(self):
+        controller = GameController(WhistGame(seed=32), [RulePolicy()] * 4)
+        while not controller.game.trick_history:
+            controller.step()
+        observation = controller.observation(controller.game.current_player)
+        played_cards = [card for trick in controller.game.trick_history for _, card in trick]
+        self.assertEqual(len(played_cards), 4)
+        self.assertTrue(all(card in observation["played_cards"] for card in played_cards))
+
 
 if __name__ == "__main__":
     unittest.main()

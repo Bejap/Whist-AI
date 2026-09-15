@@ -5,7 +5,16 @@ from pathlib import Path
 import torch
 
 from whist_ai.engine import WhistGame
-from whist_ai.model import OBSERVATION_SIZE, PolicyNetwork, encode_observation, load_checkpoint, save_checkpoint
+from whist_ai.model import (
+    ACTION_SPACE_VERSION,
+    OBSERVATION_SIZE,
+    OBSERVATION_VERSION,
+    PolicyNetwork,
+    RULES_VERSION,
+    encode_observation,
+    load_checkpoint,
+    save_checkpoint,
+)
 from whist_ai.policies import RulePolicy
 from whist_ai.simulator import GameController
 
@@ -33,6 +42,16 @@ class ModelTests(unittest.TestCase):
             restored = load_checkpoint(path)
         for first, second in zip(network.parameters(), restored.parameters()):
             self.assertTrue(torch.equal(first, second))
+
+    def test_checkpoint_records_compatibility_versions(self):
+        network = PolicyNetwork()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "policy.pt"
+            save_checkpoint(network, path)
+            checkpoint = torch.load(path, map_location="cpu")
+        self.assertEqual(checkpoint["observation_version"], OBSERVATION_VERSION)
+        self.assertEqual(checkpoint["action_space_version"], ACTION_SPACE_VERSION)
+        self.assertEqual(checkpoint["rules_version"], RULES_VERSION)
 
 
 if __name__ == "__main__":

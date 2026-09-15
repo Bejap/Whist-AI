@@ -14,6 +14,9 @@ from .engine import BID_ORDER, Card
 from .policies import Policy
 
 OBSERVATION_SIZE = 204
+OBSERVATION_VERSION = 2
+ACTION_SPACE_VERSION = 1
+RULES_VERSION = 1
 PHASE_INDEX = {"bidding": 0, "choose_trump": 1, "choose_partner": 2, "play": 3}
 
 
@@ -128,13 +131,30 @@ class LearnedPolicy(Policy):
 
 def save_checkpoint(network: PolicyNetwork, path: str | Path) -> None:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    torch.save({"model": network.state_dict(), "observation_size": OBSERVATION_SIZE}, path)
+    torch.save(
+        {
+            "model": network.state_dict(),
+            "observation_size": OBSERVATION_SIZE,
+            "observation_version": OBSERVATION_VERSION,
+            "action_space_version": ACTION_SPACE_VERSION,
+            "rules_version": RULES_VERSION,
+            "policy_role": "shared_full_game",
+        },
+        path,
+    )
 
 
 def load_checkpoint(path: str | Path, device: str = "cpu") -> PolicyNetwork:
     checkpoint = torch.load(path, map_location=device)
-    if checkpoint.get("observation_size") != OBSERVATION_SIZE:
-        raise ValueError("checkpoint observation version is incompatible")
+    expected = {
+        "observation_size": OBSERVATION_SIZE,
+        "observation_version": OBSERVATION_VERSION,
+        "action_space_version": ACTION_SPACE_VERSION,
+        "rules_version": RULES_VERSION,
+    }
+    for key, value in expected.items():
+        if checkpoint.get(key) != value:
+            raise ValueError(f"checkpoint {key} is incompatible")
     network = PolicyNetwork().to(device)
     network.load_state_dict(checkpoint["model"])
     return network
