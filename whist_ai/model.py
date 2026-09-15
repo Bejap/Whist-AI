@@ -13,7 +13,7 @@ from torch.distributions import Categorical
 from .engine import BID_ORDER, Card
 from .policies import Policy
 
-OBSERVATION_SIZE = 138
+OBSERVATION_SIZE = 204
 PHASE_INDEX = {"bidding": 0, "choose_trump": 1, "choose_partner": 2, "play": 3}
 
 
@@ -45,7 +45,7 @@ def encode_observation(observation: dict[str, Any]) -> np.ndarray:
     for suit, rank in observation["hand"]:
         vector[index + suit * 13 + rank] = 1.0
     index += 52
-    for _, (suit, rank) in observation["trick_cards"]:
+    for suit, rank in observation["played_cards"]:
         vector[index + suit * 13 + rank] = 1.0
     index += 52
     vector[index + PHASE_INDEX[observation["phase"]]] = 1.0
@@ -62,12 +62,28 @@ def encode_observation(observation: dict[str, Any]) -> np.ndarray:
     if observation["trump_suit"] is not None:
         vector[index + observation["trump_suit"]] = 1.0
     index += 5
+    if observation["partner_suit"] is not None:
+        vector[index + observation["partner_suit"]] = 1.0
+    index += 5
     vector[index + observation["player"]] = 1.0
     index += 4
     if observation["declarer"] is not None:
         vector[index + observation["declarer"]] = 1.0
     index += 5
+    if observation["partner_player"] is not None:
+        vector[index + observation["partner_player"] + 1] = 1.0
+    index += 5
+    vector[index + observation["dealer"]] = 1.0
+    index += 4
+    for passed_player in observation["passed_players"]:
+        vector[index + passed_player] = 1.0
+    index += 4
     vector[index:index + 4] = np.asarray(observation["tricks_won"], dtype=np.float32) / 13.0
+    index += 4
+    action_index = {"pass": 0}
+    action_index.update({bid: position + 1 for position, bid in enumerate(BID_ORDER)})
+    for player, action in observation["bid_history"]:
+        vector[index + player * 12 + action_index[action]] = 1.0
     return vector
 
 

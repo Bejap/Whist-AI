@@ -27,17 +27,32 @@ class GameController:
     def observation(self, player: int) -> dict[str, Any]:
         game = self.game
         visible_tricks = tuple(game.trick_cards)
+        played_cards = tuple(
+            card
+            for trick in game.trick_history
+            for _, card in trick
+        ) + tuple(card for _, card in game.trick_cards)
+        bid_history = tuple(
+            (decision.player, decision.action)
+            for decision in self.decisions
+            if decision.phase == "bidding"
+        )
         return {
             "player": player,
             "phase": game.phase,
             "hand": tuple(game.hands[player]),
             "current_bid": game.current_bid,
             "trick_cards": visible_tricks,
+            "played_cards": played_cards,
+            "bid_history": bid_history,
+            "passed_players": tuple(sorted(game.passed_players)),
             "tricks_won": tuple(game.tricks_won),
+            "dealer": game.dealer,
             "trump_suit": game.trump_suit,
+            "partner_suit": game.partner_suit,
             "declarer": game.declarer,
-            "partner_revealed": False,
-            "partner_player": None,
+            "partner_revealed": game.partner_player is not None,
+            "partner_player": game.partner_player,
         }
 
     def step(self) -> Decision:

@@ -17,6 +17,14 @@ class ModelTests(unittest.TestCase):
         self.assertEqual(encoded.shape, (OBSERVATION_SIZE,))
         self.assertEqual(encoded.dtype.name, "float32")
 
+    def test_observation_contains_public_card_and_bid_history(self):
+        controller = GameController(WhistGame(seed=21), [RulePolicy()] * 4)
+        controller.step()
+        observation = controller.observation(controller.game.current_player)
+        self.assertEqual(len(observation["played_cards"]), 0)
+        self.assertEqual(len(observation["bid_history"]), 1)
+        self.assertEqual(encode_observation(observation).shape, (OBSERVATION_SIZE,))
+
     def test_checkpoint_round_trip(self):
         network = PolicyNetwork()
         with tempfile.TemporaryDirectory() as directory:

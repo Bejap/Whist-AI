@@ -20,7 +20,11 @@ A policy may be neural, rule-based, random, or search-based as long as it obeys 
 
 ## Observation requirements
 
-Observations should identify phase, acting seat, hand, visible played cards, current contract, trump, known partner information, trick state, and public history. They must not reveal unplayed opponent cards or hidden partner identity.
+Observations identify phase, acting seat, hand, every publicly played card, current
+contract, trump, partner suit, partner seat after declaration, trick state, dealer,
+passed players, and public bidding history. They must not reveal unplayed opponent
+cards. Card counting is an intended player capability: the model receives the full
+public played-card set, not only the cards in the current trick.
 
 ## Action masking
 
