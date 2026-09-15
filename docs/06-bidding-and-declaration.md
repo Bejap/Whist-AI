@@ -12,6 +12,26 @@ A bid is a long-horizon decision. Its quality depends on the resulting contract,
 
 Start with imitation or search-generated targets where available. Then fine-tune with masked PPO using settlement-based rewards against a frozen card-play specialist and fixed opponents. Include opening decisions, responses, successful contracts, failed contracts, and pass behavior.
 
+The first reinforcement-learning reward is explicit:
+
+```text
+terminal_reward = learner_payment / 25.0
+non_terminal_reward = 0.0
+```
+
+The payment is calculated only after the complete auction, declaration, and
+trick play. It is the learner seat's actual settlement, so a failed contract,
+successful defense, overbid, underbid, or Paskrig result is handled by the same
+objective. The bid policy learns which legal decisions tend to produce better
+settlements; it does not learn the meaning of the reward from scratch.
+
+For an auction decision that is not followed by the learner becoming declarer,
+the first implementation still records the final learner settlement, but the
+evaluation reports those decisions separately. This prevents us from claiming
+that a bid is good merely because a different seat later won. If credit
+assignment is too noisy, the next experiment is a counterfactual auction
+baseline or imitation pretraining, not an arbitrary bid bonus.
+
 The declaration policy should choose trump and partner suit only after a contract makes the choice legal. It must not be merged into the bidding target prematurely.
 
 ## Metrics

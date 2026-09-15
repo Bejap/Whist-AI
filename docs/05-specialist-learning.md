@@ -15,7 +15,27 @@ Use masked PPO initially because the action space is discrete and legal actions 
 
 ## Reward design
 
-The terminal reward should be derived from the learner's actual settlement or team result. Small intermediate trick signals may improve learning, but they must be audited against the terminal objective and never reward illegal or information-leaking behavior.
+Use the Phase 2 reward contract exactly for the first specialist:
+
+```text
+terminal_reward = learner_payment / 25.0
+non_terminal_reward = 0.0
+```
+
+`learner_payment` is the actual settlement for the acting learning seat. The
+raw payment is retained in every episode record and is the metric used for
+evaluation. This lets one shared card-play policy learn both declarer-team and
+defender play without pretending that every trick has the same value. In nolo
+contracts and Paskrig, fewer tricks can be better; the settlement decides.
+
+The model should discover the action strategy from this objective. It should
+not be asked to discover the objective itself. Invalid actions are rejected and
+fail the legality tests; they are not silently converted into a legal card.
+
+Do not add per-trick rewards in the baseline. A later shaping experiment must
+use a documented potential, compare against the no-shaping baseline on identical
+seeds, and be discarded if it improves an intermediate metric while reducing
+held-out settlement.
 
 ## Resource policy
 
