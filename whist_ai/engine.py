@@ -70,7 +70,10 @@ class WhistGame:
         self.current_bid = bid
         self.declarer = player
         self.passed_players.discard(player)
-        self._next_bidder()
+        if len(self.passed_players) >= 3:
+            self._start_contract()
+        else:
+            self._next_bidder()
 
     def pass_bid(self, player: int) -> None:
         self._require_turn(player)
@@ -79,7 +82,7 @@ class WhistGame:
         if self.current_bid is None and len(self.passed_players) == 4:
             self._start_paskrig()
             return
-        if self.current_bid is not None and len(self.passed_players) == 3:
+        if self.current_bid is not None and len(self.passed_players) >= 3:
             self._start_contract()
             return
         self._next_bidder()
