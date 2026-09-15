@@ -76,7 +76,7 @@ class LearnedPolicy(Policy):
         self.network = network
         self.device = torch.device(device)
         self.deterministic = deterministic
-        self.transitions: list[tuple[torch.Tensor, str, torch.Tensor, torch.Tensor, torch.Tensor]] = []
+        self.transitions: list[tuple[torch.Tensor, str, tuple[int, ...], torch.Tensor, torch.Tensor, torch.Tensor]] = []
 
     def _choose(self, observation: dict[str, Any], phase: str, legal_indices: Sequence[int]) -> int:
         state = torch.as_tensor(encode_observation(observation), dtype=torch.float32, device=self.device)
@@ -86,7 +86,7 @@ class LearnedPolicy(Policy):
         distribution = Categorical(logits=logits + mask)
         action = torch.argmax(distribution.logits) if self.deterministic else distribution.sample()
         log_probability = distribution.log_prob(action)
-        self.transitions.append((state, phase, action.detach(), log_probability, value))
+        self.transitions.append((state, phase, tuple(legal_indices), action.detach(), log_probability, value))
         return int(action.item())
 
     def choose_bid(self, observation, legal_bids):

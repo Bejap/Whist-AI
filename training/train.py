@@ -22,9 +22,11 @@ def update_policy(policy: LearnedPolicy, optimizer: torch.optim.Optimizer, rewar
     target = torch.tensor(reward, dtype=torch.float32, device=policy.device)
     for _ in range(epochs):
         loss = torch.zeros((), device=policy.device)
-        for state, phase, action, old_log_probability, _ in policy.transitions:
+        for state, phase, legal_indices, action, old_log_probability, _ in policy.transitions:
             logits, value = policy.network(state, phase)
-            distribution = Categorical(logits=logits)
+            mask = torch.full_like(logits, float("-inf"))
+            mask[list(legal_indices)] = 0.0
+            distribution = Categorical(logits=logits + mask)
             log_probability = distribution.log_prob(action)
             ratio = torch.exp(log_probability - old_log_probability.detach())
             advantage = target - value.detach()
