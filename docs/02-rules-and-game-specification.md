@@ -25,35 +25,88 @@ The rules engine, not the learning environment, owns all game transitions. The e
 
 ## Reward contract
 
-The model does not invent its own reward. The environment supplies a reward that
-encodes the project objective: maximize the learner's long-run settlement while
-playing legal actions.
+The model does not invent its own reward. The environment supplies a simple,
+explicit terminal game-point reward. The policy discovers which legal actions
+produce good outcomes; the project defines what good means below.
 
-The rules engine first computes the complete settlement. The canonical terminal
-signal is the learner seat's actual payment, including whether the learner was
-the declarer, the declarer's partner, a defender, or a Paskrig winner:
+All non-terminal decisions receive `0.0`. The terminal reward is calculated
+from the final contract and trick result. Raw settlement is still recorded and
+remains an evaluation metric, but it is not the training reward in this design.
+
+### Numeric contracts
+
+For a successful numeric contract, the bid contributes one point for each
+level above 7, and the trick component counts from 7 through the tricks taken:
 
 ```text
-terminal_reward = learner_payment / 25.0
+bid_value = bid - 7
+success_reward = bid_value + (tricks_won - 6)
 ```
 
-The scale changes magnitude only; it does not change which outcome is better.
-The unscaled payment remains the authoritative evaluation metric. No separate
-hand-coded reward is allowed to override settlement. A successful contract is
-therefore not automatically good if its payment is worse than another legal
-outcome, and taking a trick is not automatically good in a nolo contract.
+For failed bids from 7 through 12, the bid value is lost and every missed trick
+costs two points:
 
-All non-terminal decisions receive `0.0` in the first implementation. An
-invalid action is a simulator or policy bug: it is rejected and counted in
-tests rather than silently replaced. If a bounded invalid-action penalty is
-needed for an experiment, it must be documented and evaluated separately from
-the canonical reward.
+```text
+missed = bid - tricks_won
+failure_reward = -bid_value - 2 * missed
+```
 
-Intermediate trick shaping is not part of the canonical objective. It may be
-introduced later only as a potential-based signal, with an ablation proving
-that it does not make the policy optimize tricks instead of settlement. The
-policy is expected to discover bidding, card-selection, risk, and coordination
-strategies from observations and terminal outcomes; it is not expected to
+Bid 13 is a locked-in contract. Its failure has an additional six-point
+surcharge, so missing by one is worse than its maximum ordinary success value:
+
+```text
+failure_reward_for_13 = -6 - 6 - 2 * (13 - tricks_won)
+```
+
+| Bid | Tricks | Outcome | Reward |
+|---:|---:|---|---:|
+| 7 | 7 | Success | +1 |
+| 7 | 8 | Success | +2 |
+| 8 | 8 | Success | +3 |
+| 9 | 9 | Success | +5 |
+| 10 | 10 | Success | +7 |
+| 12 | 12 | Success | +11 |
+| 13 | 13 | Success | +13 |
+| 7 | 6 | Missed by 1 | -2 |
+| 8 | 7 | Missed by 1 | -3 |
+| 8 | 6 | Missed by 2 | -5 |
+| 9 | 7 | Missed by 2 | -6 |
+| 12 | 10 | Missed by 2 | -9 |
+| 13 | 12 | Locked-in contract missed by 1 | -14 |
+| 13 | 10 | Locked-in contract missed by 3 | -18 |
+
+### Nolo contracts
+
+A nolo failure ends immediately when its forbidden trick is taken. Therefore,
+there is no per-trick failure accumulation. Failure is deliberately 1.5 times
+the success value:
+
+| Contract | Success condition | Success reward | Failure condition | Failure reward |
+|---|---|---:|---|---:|
+| Sol | Declarer takes 0 or 1 trick | +4 | Declarer takes a second trick | -6 |
+| Ren sol | Declarer takes 0 tricks | +8 | Declarer takes one trick | -12 |
+| Bordlaegger | Declarer takes 0 tricks | +12 | Declarer takes one trick | -18 |
+
+### Paskrig
+
+Paskrig rewards avoiding tricks and intentionally uses an asymmetric reward.
+Let `fewest` be the smallest trick count and `most` the largest:
+
+```text
+winner_reward = most - fewest
+non_winner_reward = -2 * (tricks_won - fewest)
+```
+
+Every player tied for the fewest tricks is a winner and receives the same
+winner reward. For example, `[1, 1, 2, 9]` produces `[+8, +8, -2, -16]`.
+With one winner, `[1, 2, 4, 6]` produces `[+5, -2, -6, -10]`.
+These rewards are intentionally not zero-sum: taking many tricks is punished
+more strongly than winning with few tricks is rewarded.
+
+An invalid action is a simulator or policy bug: it is rejected and counted in
+tests rather than silently replaced. Intermediate reward shaping is not part
+of the baseline. The policy is expected to discover bidding, card selection,
+risk, and coordination strategies from these terminal outcomes, not to
 discover what the reward should mean.
 
 ## Test strategy

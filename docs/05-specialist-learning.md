@@ -15,27 +15,27 @@ Use masked PPO initially because the action space is discrete and legal actions 
 
 ## Reward design
 
-Use the Phase 2 reward contract exactly for the first specialist:
+Use the Phase 2 terminal game-point reward exactly for the first specialist:
 
 ```text
-terminal_reward = learner_payment / 25.0
 non_terminal_reward = 0.0
 ```
 
-`learner_payment` is the actual settlement for the acting learning seat. The
-raw payment is retained in every episode record and is the metric used for
-evaluation. This lets one shared card-play policy learn both declarer-team and
-defender play without pretending that every trick has the same value. In nolo
-contracts and Paskrig, fewer tricks can be better; the settlement decides.
+The terminal reward is the numeric, nolo, or Paskrig game-point result defined
+in Phase 2. Numeric contracts reward a fulfilled bid and tricks above seven,
+charge two points for every missed trick, and apply the additional locked-in
+penalty to failed 13 bids. Nolo contracts use fixed success values and a 1.5x
+failure multiplier. Paskrig uses its intentionally asymmetric relative-trick
+reward. Raw settlement is retained in every episode record for evaluation.
 
 The model should discover the action strategy from this objective. It should
 not be asked to discover the objective itself. Invalid actions are rejected and
 fail the legality tests; they are not silently converted into a legal card.
 
 Do not add per-trick rewards in the baseline. A later shaping experiment must
-use a documented potential, compare against the no-shaping baseline on identical
-seeds, and be discarded if it improves an intermediate metric while reducing
-held-out settlement.
+use a documented potential, compare against this no-shaping baseline on
+identical seeds, and be discarded if it improves an intermediate metric while
+reducing held-out game points or settlement.
 
 ## Resource policy
 
