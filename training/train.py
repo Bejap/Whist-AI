@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 from pathlib import Path
 
 import torch
@@ -55,6 +56,7 @@ def train(
     gpu_temperature_limit: float,
     gpu_temperature_resume: float,
     gpu_memory_limit: float,
+    metrics_path: Path,
 ) -> None:
     torch.manual_seed(seed)
     if checkpoint.exists():
@@ -65,6 +67,12 @@ def train(
         network = PolicyNetwork().to(device)
     policy = LearnedPolicy(network, device=device)
     optimizer = torch.optim.Adam(network.parameters(), lr=3e-4)
+    metrics_path.parent.mkdir(parents=True, exist_ok=True)
+    metrics_exists = metrics_path.exists()
+    with metrics_path.open("a", newline="", encoding="utf-8") as metrics_file:
+        metrics = csv.writer(metrics_file)
+        if not metrics_exists:
+            metrics.writerow(("episode", "reward", "loss", "positive", "nonnegative"))
     for episode in range(1, episodes + 1):
         wait_for_memory(memory_limit, memory_resume)
         if device.startswith("cuda"):
@@ -74,12 +82,16 @@ def train(
         rewards = controller.run()
         reward = float(rewards[0])
         loss = update_policy(policy, optimizer, reward, update_epochs)
+        with metrics_path.open("a", newline="", encoding="utf-8") as metrics_file:
+            csv.writer(metrics_file).writerow(
+                (episode, reward, loss, int(reward > 0), int(reward >= 0))
+            )
         if episode == 1 or episode % 100 == 0:
             print(f"episode={episode} reward={reward:+.1f} loss={loss:.4f}", flush=True)
         if episode % 1000 == 0:
             save_checkpoint(network, checkpoint)
     save_checkpoint(network, checkpoint)
-    print(f"saved={checkpoint}")
+    print(f"saved={checkpoint} metrics={metrics_path}")
 
 
 def main() -> None:
@@ -94,6 +106,7 @@ def main() -> None:
     parser.add_argument("--gpu-temperature-limit", type=float, default=80.0)
     parser.add_argument("--gpu-temperature-resume", type=float, default=70.0)
     parser.add_argument("--gpu-memory-limit", type=float, default=90.0)
+    parser.add_argument("--metrics", type=Path, default=Path("graphs/training_metrics.csv"))
     args = parser.parse_args()
     if args.episodes <= 0 or args.update_epochs <= 0:
         raise ValueError("episodes and update epochs must be positive")
@@ -108,6 +121,7 @@ def main() -> None:
         args.gpu_temperature_limit,
         args.gpu_temperature_resume,
         args.gpu_memory_limit,
+        args.metrics,
     )
 
 
