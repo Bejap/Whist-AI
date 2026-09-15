@@ -34,6 +34,15 @@ class ModelTests(unittest.TestCase):
         self.assertEqual(len(observation["bid_history"]), 1)
         self.assertEqual(encode_observation(observation).shape, (OBSERVATION_SIZE,))
 
+    def test_observation_preserves_public_card_owners_and_void_suits(self):
+        controller = GameController(WhistGame(seed=22), [RulePolicy()] * 4)
+        while not controller.game.trick_history:
+            controller.step()
+        observation = controller.observation(controller.game.current_player)
+        self.assertEqual(len(observation["played_cards_by_player"]), 4)
+        self.assertEqual(len(observation["current_trick_by_player"]), 0)
+        self.assertEqual(encode_observation(observation).shape, (OBSERVATION_SIZE,))
+
     def test_checkpoint_round_trip(self):
         network = PolicyNetwork()
         with tempfile.TemporaryDirectory() as directory:

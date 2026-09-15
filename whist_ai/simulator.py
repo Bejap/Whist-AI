@@ -32,6 +32,17 @@ class GameController:
             for trick in game.trick_history
             for _, card in trick
         ) + tuple(card for _, card in game.trick_cards)
+        played_cards_by_player = tuple(
+            (played_player, card)
+            for trick in game.trick_history
+            for played_player, card in trick
+        ) + tuple(game.trick_cards)
+        void_suits = tuple(
+            (played_player, trick[0][1][0])
+            for trick in game.trick_history
+            for played_player, card in trick
+            if card[0] != trick[0][1][0]
+        )
         bid_history = tuple(
             (decision.player, decision.action)
             for decision in self.decisions
@@ -44,6 +55,9 @@ class GameController:
             "current_bid": game.current_bid,
             "trick_cards": visible_tricks,
             "played_cards": played_cards,
+            "played_cards_by_player": played_cards_by_player,
+            "current_trick_by_player": tuple(game.trick_cards),
+            "void_suits": void_suits,
             "bid_history": bid_history,
             "passed_players": tuple(sorted(game.passed_players)),
             "tricks_won": tuple(game.tricks_won),

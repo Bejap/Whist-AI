@@ -61,6 +61,21 @@ class SimulatorTests(unittest.TestCase):
         self.assertEqual(len(played_cards), 4)
         self.assertTrue(all(card in observation["played_cards"] for card in played_cards))
 
+    def test_observation_records_who_played_each_card_and_renonce(self):
+        controller = GameController(WhistGame(seed=33), [RulePolicy()] * 4)
+        while not controller.game.trick_history:
+            controller.step()
+        observation = controller.observation(controller.game.current_player)
+        expected_cards = [item for trick in controller.game.trick_history for item in trick]
+        expected_voids = [
+            (player, trick[0][1][0])
+            for trick in controller.game.trick_history
+            for player, card in trick
+            if card[0] != trick[0][1][0]
+        ]
+        self.assertEqual(observation["played_cards_by_player"], tuple(expected_cards))
+        self.assertEqual(observation["void_suits"], tuple(expected_voids))
+
 
 if __name__ == "__main__":
     unittest.main()

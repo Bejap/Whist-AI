@@ -13,8 +13,8 @@ from torch.distributions import Categorical
 from .engine import BID_ORDER, Card
 from .policies import Policy
 
-OBSERVATION_SIZE = 204
-OBSERVATION_VERSION = 2
+OBSERVATION_SIZE = 584
+OBSERVATION_VERSION = 3
 ACTION_SPACE_VERSION = 1
 RULES_VERSION = 1
 PHASE_INDEX = {"bidding": 0, "choose_trump": 1, "choose_partner": 2, "play": 3}
@@ -48,9 +48,15 @@ def encode_observation(observation: dict[str, Any]) -> np.ndarray:
     for suit, rank in observation["hand"]:
         vector[index + suit * 13 + rank] = 1.0
     index += 52
-    for suit, rank in observation["played_cards"]:
-        vector[index + suit * 13 + rank] = 1.0
-    index += 52
+    for player, (suit, rank) in observation["played_cards_by_player"]:
+        vector[index + player * 52 + suit * 13 + rank] = 1.0
+    index += 208
+    for player, (suit, rank) in observation["current_trick_by_player"]:
+        vector[index + player * 52 + suit * 13 + rank] = 1.0
+    index += 208
+    for player, suit in observation["void_suits"]:
+        vector[index + player * 4 + suit] = 1.0
+    index += 16
     vector[index + PHASE_INDEX[observation["phase"]]] = 1.0
     index += 4
     current_bid = observation["current_bid"]
