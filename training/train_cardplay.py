@@ -23,6 +23,17 @@ from training.train import update_policy
 
 
 CONTRACTS = (7, 8, 9, 10, 11, 12, 13, "sol", "ren sol", "bordlaegger", "paskrig")
+SCENARIO_CYCLE = len(CONTRACTS) * 16
+
+
+def scenario_for_episode(episode: int) -> tuple[int | str, int, int]:
+    """Return a balanced contract, learner seat, and declarer schedule."""
+    cycle_index = (episode - 1) % SCENARIO_CYCLE
+    contract_index = cycle_index % len(CONTRACTS)
+    role_pair = cycle_index // len(CONTRACTS)
+    learner_seat = role_pair % 4
+    declarer = role_pair // 4
+    return CONTRACTS[contract_index], learner_seat, declarer
 
 
 def hand_strength(hand: tuple[tuple[int, int], ...]) -> int:
@@ -79,11 +90,8 @@ def train(
                 wait_for_gpu(gpu_temperature_limit, gpu_temperature_resume, gpu_memory_limit)
             game_seed = seed + episode
             game = WhistGame(seed=game_seed, dealer=game_seed % 4)
-            learner_seat = (episode - 1) % 4
+            contract, learner_seat, declarer = scenario_for_episode(episode)
             learner_hand_strength = hand_strength(tuple(game.hands[learner_seat]))
-            contract = CONTRACTS[(episode - 1) % len(CONTRACTS)]
-            scenario_index = episode - 1
-            declarer = (scenario_index // 4) % 4
             trump_suit = game_seed % 4
             partner_suit = (trump_suit + 1) % 4
             game.start_fixed_contract(
