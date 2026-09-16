@@ -1,4 +1,7 @@
-"""Train the card-play specialist from fixed-contract scenarios."""
+"""Run the historical mixed-role card-play experiment for diagnostics only.
+
+Use ``training.train_declarer_cardplay`` for the active declarer curriculum.
+"""
 
 from __future__ import annotations
 

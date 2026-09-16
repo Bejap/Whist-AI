@@ -11,7 +11,7 @@ met and its artifacts are recorded.
 - [x] Resumable checkpoints with optimizer state
 - [x] Fixed rule opponents and held-out evaluation scaffold
 - [x] Historical 138-feature checkpoint retained
-- [ ] Card-play specialist
+- [ ] Declarer card-play curriculum
 - [ ] Counterfactual contract evaluator
 - [ ] Legacy checkpoint opponent adapter
 - [ ] Bidding and declaration specialist
@@ -30,11 +30,60 @@ reward on identical seeds and must be rejected if held-out settlement worsens.
 
 ## Phase A: card-play specialist
 
-Train card play with the auction and declaration fixed by the scenario. The
-policy receives the legal public observation and selects only legal cards.
-Bidding is not learned in this phase.
+The first card-play specialist is a declarer-team specialist. The auction and
+declaration are fixed by the scenario, the learner is always the declarer, and
+the partner and defenders are frozen rule policies. The learner receives the
+legal public observation and selects only legal cards. Bidding is not learned
+in this phase.
 
-Required scenario coverage:
+The historical mixed-role trainer is diagnostic only. It rotates one policy
+through declarer, partner, and defender roles and mixes every contract; its
+overall success rate must not be used as evidence that declarer play works.
+
+### Phase A1: numeric declarer foundation
+
+Start with numeric contracts 7, 8, and 9. Rotate declarer seat, dealer, deal
+seed, trump suit, and partner card. The training target is the authoritative
+terminal settlement for the declarer team. The primary metrics are declarer
+team success and mean settlement, reported separately for each contract.
+
+Do not resume the mixed-role checkpoint. Use a new checkpoint and metrics file
+for this curriculum so that role and objective boundaries are explicit.
+
+The A1 trainer is `training.train_declarer_cardplay`. The user-owned launch
+command is:
+
+```powershell
+.venv\Scripts\python.exe -u -m training.train_declarer_cardplay `
+	--episodes 100000 `
+	--seed 150000 `
+	--contracts 7,8,9 `
+	--checkpoint checkpoints\declarer_cardplay_7_9.pt `
+	--device cuda `
+	--update-epochs 4 `
+	--memory-limit 80 `
+	--memory-resume 75 `
+	--gpu-temperature-limit 80 `
+	--gpu-temperature-resume 70 `
+	--gpu-memory-limit 90 `
+	--metrics graphs\declarer_cardplay_7_9_metrics.csv `
+	--graph graphs\declarer_cardplay_progress.png `
+	--graph-every 1000
+```
+
+The previous `training.train_cardplay` command remains available only for
+diagnostic comparison and must not write to the A1 checkpoint or metrics path.
+
+### Phase A2: staged difficulty
+
+Add contracts 10, 11, 12, and 13 only after A1 beats the fixed rule card-play
+baseline on held-out declarer-team settlement. Add Sol, Ren sol, and
+Bordlaegger as a separate no-trump curriculum after the numeric specialist is
+stable. Add partner and defender specialists only after declarer performance
+has passed its gate; their results are separate benchmarks, not training
+signal for the declarer specialist.
+
+Required eventual scenario coverage:
 
 - Numeric contracts 7 through 13
 - Sol, Ren sol, Bordlaegger, and Paskrig
@@ -54,7 +103,12 @@ Exit gate:
 
 - No illegal actions or incomplete games
 - Checkpoint resume passes
-- Held-out settlement matches or beats the fixed rules card-play baseline
+- A1 held-out declarer-team settlement matches or beats the fixed rules
+  card-play baseline for contracts 7 through 9
+- Declarer success and settlement improve over training windows on two
+  independent seed sets
+- No contract is promoted to the next curriculum stage solely because overall
+	success increased through defender episodes
 - Results are reported by contract and seat role on two independent seed sets
 
 ## Phase B: counterfactual contract evaluation

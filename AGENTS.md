@@ -38,6 +38,16 @@ Commit and push meaningful progress throughout the process.
 
 Training and evaluation must respect system RAM and GPU limits. Prefer bounded workloads, CPU opponent inference, reproducible seeds, and explicit pause or stop behavior for resource-heavy jobs. Do not launch a second expensive process while another one is active without checking resource headroom.
 
+## Metrics and graphs
+
+- Every substantive training or evaluation run must write a machine-readable metrics file and maintain a corresponding graph in `graphs/`.
+- Metrics must be flushed during the run so the current progress can be inspected while training is active.
+- This applies to every training style: declarer, partner, defender, mixed-role, curriculum, self-play, population, and evaluation.
+- Graphs must show the primary phase objective, not only aggregate episode success. For declarer training, always include declarer-team settlement and win rate by contract; for other styles, graph that style's own role/team objective separately.
+- Use a distinct checkpoint, metrics path, and graph path for each experiment. Never mix rows from different objectives, roles, or checkpoints in one graph.
+- When reporting progress, include the latest episode, metrics path, graph path, primary objective, and the command used to refresh the graph.
+- Refresh the graph after meaningful progress and before making a training decision or advancing a phase gate.
+
 ## Training ownership
 
 - The user launches and stops substantive training runs from their own terminal.
