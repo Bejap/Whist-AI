@@ -82,7 +82,8 @@ def train(
             learner_seat = (episode - 1) % 4
             learner_hand_strength = hand_strength(tuple(game.hands[learner_seat]))
             contract = CONTRACTS[(episode - 1) % len(CONTRACTS)]
-            declarer = (game_seed + 1) % 4
+            scenario_index = episode - 1
+            declarer = (scenario_index // 4) % 4
             trump_suit = game_seed % 4
             partner_suit = (trump_suit + 1) % 4
             game.start_fixed_contract(

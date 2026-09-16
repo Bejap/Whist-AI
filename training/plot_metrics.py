@@ -133,15 +133,60 @@ def plot_bidding(decisions_path: Path, output_path: Path, window: int) -> None:
     plt.close(figure)
 
 
+def plot_cardplay(metrics_path: Path, output_path: Path, window: int) -> None:
+    with metrics_path.open(newline="", encoding="utf-8") as metrics_file:
+        rows = list(csv.DictReader(metrics_file))
+    if not rows:
+        raise ValueError(f"no card-play rows found in {metrics_path}")
+    rewards = [float(row["reward"]) for row in rows]
+    success = [float(row["success"]) for row in rows]
+    labels = [int(row["episode"]) for row in rows[::window]]
+    starts = list(range(0, len(rows), window))
+    mean_rewards = [sum(rewards[start : start + window]) / len(rewards[start : start + window]) for start in starts]
+    success_rates = [sum(success[start : start + window]) / len(success[start : start + window]) for start in starts]
+    contracts = Counter(row["contract"] for row in rows)
+    roles = Counter(row["learner_role"] for row in rows)
+    figure, axes = plt.subplots(2, 2, figsize=(12, 8))
+    axes[0, 0].plot(labels, mean_rewards, color="#1769aa")
+    axes[0, 0].axhline(0, color="black", linewidth=0.8)
+    axes[0, 0].set_title(f"Card-play reward per {window}-episode block")
+    axes[0, 0].set_xlabel("episode")
+    axes[0, 0].set_ylabel("game points")
+    axes[0, 1].plot(labels, success_rates, color="#2e7d32")
+    axes[0, 1].set_ylim(0, 1)
+    axes[0, 1].set_title("Contract success rate")
+    axes[0, 1].set_xlabel("episode")
+    axes[0, 1].set_ylabel("share")
+    axes[1, 0].bar(list(contracts), list(contracts.values()), color="#6a1b9a")
+    axes[1, 0].set_title("Scenario coverage by contract")
+    axes[1, 0].set_xlabel("contract")
+    axes[1, 0].set_ylabel("episodes")
+    axes[1, 0].tick_params(axis="x", rotation=35)
+    axes[1, 1].bar(list(roles), list(roles.values()), color="#ef6c00")
+    axes[1, 1].set_title("Learner role coverage")
+    axes[1, 1].set_xlabel("role")
+    axes[1, 1].set_ylabel("episodes")
+    figure.suptitle("Card-play specialist dashboard")
+    figure.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    figure.savefig(output_path, dpi=150)
+    plt.close(figure)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--metrics", type=Path, default=Path("graphs/training_metrics.csv"))
     parser.add_argument("--decisions", type=Path, default=Path("graphs/bidding_decisions.csv"))
     parser.add_argument("--output-dir", type=Path, default=Path("graphs"))
     parser.add_argument("--window", type=int, default=100)
+    parser.add_argument("--cardplay-metrics", type=Path)
     args = parser.parse_args()
     if args.window <= 0:
         raise ValueError("window must be positive")
+    if args.cardplay_metrics is not None:
+        plot_cardplay(args.cardplay_metrics, args.output_dir / "cardplay_progress.png", args.window)
+        print(f"saved={args.output_dir / 'cardplay_progress.png'}")
+        return
     plot_progress(args.metrics, args.output_dir / "training_progress.png", args.window)
     plot_rewards(args.output_dir / "reward_structure.png")
     plot_bidding(args.decisions, args.output_dir / "bidding_progress.png", args.window)
